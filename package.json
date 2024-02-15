@@ -1,0 +1,14 @@
+{
+  "name": "offline-wallets",
+  "version": "1.0.0",
+  "description": "Small utility to create and restore wallets offline",
+  "main": "index.js",
+  "author": "philister16",
+  "license": "MIT",
+  "devDependencies": {
+    "ethers": "^6.11.1"
+  },
+  "bin": {
+    "ofwl": "./index.js"
+  }
+}
