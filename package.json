@@ -5,6 +5,10 @@
   "main": "index.js",
   "author": "philister16",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/philister16/offline-wallets"
+  },
   "devDependencies": {
     "ethers": "^6.11.1"
   },
