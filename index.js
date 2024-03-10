@@ -34,7 +34,7 @@ if (process.argv[2] === '--version' || process.argv[2] === '-v') {
 if (process.argv[2] === 'create') {
     console.log('Creating a new wallet...');
     const entropy = Crypto.randomBytes(32);
-    const passphrase = Crypto.randomBytes(12).toString('base64');
+    const passphrase = Crypto.randomBytes(16).toString('base64');
     const mnemonic = Mnemonic.fromEntropy(entropy, passphrase);
     if (!Mnemonic.isValidMnemonic(mnemonic.phrase)) {
         console.error('Invalid Mnemonic');
@@ -58,4 +58,20 @@ if (process.argv[2] === 'restore') {
             process.exit(0);
         });
     });
+}
+
+if (process.argv[2] === 'passphrase') {
+    console.log('Generating a passphrase...');
+    let passLength = 16;
+    if (process.argv[3] !== undefined && process.argv[3] > 0) {
+        passLength = Number(process.argv[3]);
+    }
+    const passphrase = Crypto.randomBytes(passLength).toString('base64');
+    console.log('Random passphrase: ', passphrase);
+    process.exit(0);
+}
+
+if (process.argv[2] !== 'create' && process.argv[2] !== 'restore') {
+    console.error('Invalid argument! Use --help for help.');
+    process.exit(1);
 }
