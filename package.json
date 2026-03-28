@@ -19,6 +19,10 @@
   "scripts": {
     "build": "bash build.sh"
   },
+  "files": [
+    "index.js",
+    "LICENSE"
+  ],
   "bin": {
     "ofwl": "./index.js"
   }
