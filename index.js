@@ -11,17 +11,25 @@ const rl = readline.createInterface({
 });
 
 if (process.argv.length < 3) {
-    console.error('Expected at least one argument! Use --help for help.');
+    console.error('Expected at least one argument! Use "ofwl help" for usage info.');
     process.exit(1);
 }
 
-if (process.argv[2] === '--help' || process.argv[2] === '-h') {
-    console.log('Usage: node index.js [OPTIONS]');
+if (process.argv[2] === 'help' || process.argv[2] === '--help' || process.argv[2] === '-h') {
+    const version = require('./package.json').version;
+    console.log(`ofwl v${version}`);
+    console.log('');
+    console.log('Usage: ofwl <command>');
+    console.log('');
+    console.log('Commands:');
+    console.log('  create              Create a new wallet');
+    console.log('  restore             Restore a wallet from mnemonic');
+    console.log('  passphrase [bytes]  Generate a random passphrase (default: 16 bytes)');
+    console.log('  help                Show this help message');
+    console.log('');
     console.log('Options:');
-    console.log('  create         Create a new wallet');
-    console.log('  restore        Restore a wallet from mnemonic');
-    console.log('  --help | -h    Show help');
-    console.log('  --version | -v Show version number');
+    console.log('  --help | -h         Show help');
+    console.log('  --version | -v      Show version number');
     process.exit(0);
 }
 
@@ -63,8 +71,12 @@ if (process.argv[2] === 'restore') {
 if (process.argv[2] === 'passphrase') {
     console.log('Generating a passphrase...');
     let passLength = 16;
-    if (process.argv[3] !== undefined && process.argv[3] > 0) {
-        passLength = Number(process.argv[3]);
+    if (process.argv[3] !== undefined) {
+        passLength = parseInt(process.argv[3], 10);
+        if (Number.isNaN(passLength) || passLength < 1 || passLength > 256) {
+            console.error('Byte length must be a number between 1 and 256.');
+            process.exit(1);
+        }
     }
     const passphrase = Crypto.randomBytes(passLength).toString('base64');
     console.log('Random passphrase: ', passphrase);
@@ -72,6 +84,6 @@ if (process.argv[2] === 'passphrase') {
 }
 
 if (process.argv[2] !== 'create' && process.argv[2] !== 'restore') {
-    console.error('Invalid argument! Use --help for help.');
+    console.error('Invalid argument! Use "ofwl help" for usage info.');
     process.exit(1);
 }

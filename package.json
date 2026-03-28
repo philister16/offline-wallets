@@ -9,8 +9,15 @@
     "type": "git",
     "url": "https://github.com/philister16/offline-wallets"
   },
+  "dependencies": {
+    "ethers": "^6.16.0"
+  },
   "devDependencies": {
-    "ethers": "^6.11.1"
+    "esbuild": "^0.25.0",
+    "postject": "^1.0.0-alpha.6"
+  },
+  "scripts": {
+    "build": "bash build.sh"
   },
   "bin": {
     "ofwl": "./index.js"
