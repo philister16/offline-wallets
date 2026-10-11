@@ -111,7 +111,8 @@ test('restore on a TTY: pasting mnemonic and passphrase at once works', { skip }
 test('restore on a TTY: invalid mnemonic and padded passphrase re-prompt', { skip }, async () => {
     const res = await runPty(['restore'], [
         { waitFor: 'Enter mnemonic: ', send: 'test test junk\r' },
-        { waitFor: 'Enter mnemonic: ', send: `${TEST_JUNK}\r` },
+        // Wait for the error, not 'Enter mnemonic: ': every keystroke redraws the prompt.
+        { waitFor: 'got 3.', send: `${TEST_JUNK}\r` },
         { waitFor: 'Enter passphrase: ', send: ' TREZOR\r' },
         { waitFor: '[y/N] ', send: 'n\r' },
         { waitFor: 'Enter passphrase: ', send: 'TREZOR\r' },
