@@ -8,7 +8,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/philister16/offline-wallets"
+    "url": "git+https://github.com/philister16/offline-wallets.git"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -35,6 +35,6 @@
     "npm-shrinkwrap.json"
   ],
   "bin": {
-    "ofwl": "./index.js"
+    "ofwl": "index.js"
   }
 }
