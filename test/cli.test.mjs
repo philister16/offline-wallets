@@ -200,6 +200,9 @@ test('create: no passphrase by default, private key hidden, output restores', ()
     assert.doesNotMatch(res.stdout, /[0-9a-f]{64}/i);
     assert.equal(field(res.stdout, 'Path'), "m/44'/60'/0'/0/0");
     assert.match(res.stdout, /Write down the mnemonic/);
+    // Without a terminal there is no interactive backup check, only a reminder.
+    assert.match(res.stdout, /check your backup with "ofwl restore"/);
+    assert.doesNotMatch(res.stdout, /\[Y\/n\]/);
     assert.equal(restore(mnemonic, '').address, field(res.stdout, 'Address'));
 });
 

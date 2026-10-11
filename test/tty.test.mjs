@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { validateMnemonic } from '@scure/bip39';
+import { wordlist } from '@scure/bip39/wordlists/english.js';
 
 const CLI = fileURLToPath(new URL('../index.js', import.meta.url));
 const TEST_JUNK = 'test test test test test test test test test test test junk';
@@ -26,7 +28,7 @@ function ptyCommand(args) {
 const skip = ptyCommand([]) ? false : 'script(1) pseudo-terminal not supported on this platform';
 
 // Each step waits for `waitFor` to appear in the output (after the previous
-// match), then types `send`.
+// match), then types `send` (a string, or a function of the output so far).
 function runPty(args, steps) {
     const [command, commandArgs] = ptyCommand(args);
     return new Promise((resolve, reject) => {
@@ -43,7 +45,8 @@ function runPty(args, steps) {
                 const at = output.indexOf(steps[step].waitFor, searchFrom);
                 if (at === -1) return;
                 searchFrom = at + steps[step].waitFor.length;
-                child.stdin.write(steps[step].send);
+                const { send } = steps[step];
+                child.stdin.write(typeof send === 'function' ? send(clean(output)) : send);
                 step++;
             }
             // Let cat (and with it script) exit once everything has been typed.
@@ -56,7 +59,7 @@ function runPty(args, steps) {
         child.on('error', reject);
         child.on('close', (code) => {
             clearTimeout(timer);
-            resolve({ code, output: clean(output) });
+            resolve({ code, output: clean(output), raw: output });
         });
     });
 }
@@ -141,4 +144,72 @@ test('restore on a TTY: generated passphrase with a bad checksum asks before usi
     assert.match(res.output, /Recognised an ofwl passphrase/);
     assert.match(res.output, /Address:\s+0x64F666d162C79234fb3AFfC7e11d7C82D0a1633d/);
     assertNoSecrets(res.output, ['BFFB', 'bffb', 'YAP']);
+});
+
+// --- create: backup verification ---
+
+const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
+const printed = (output, label) => output.match(new RegExp(`${label}:\\s+(\\S.*)$`, 'm'))[1].trim();
+// Output after the last screen clear, i.e. what stays visible once verification starts.
+const afterClear = (res) => clean(res.raw.slice(res.raw.lastIndexOf(CLEAR_SCREEN)));
+
+test('create on a TTY: backup verification succeeds with hidden input', { skip }, async () => {
+    let mnemonic;
+    const res = await runPty(['create'], [
+        { waitFor: '[Y/n] ', send: '\r' },
+        { waitFor: 'Enter mnemonic: ', send: (out) => `${(mnemonic = printed(out, 'Mnemonic'))}\r` },
+    ]);
+    assert.equal(res.code, 0, res.output);
+    assert.ok(res.raw.includes(CLEAR_SCREEN), 'screen not cleared');
+    const visible = afterClear(res);
+    assert.match(visible, /Enter mnemonic: \[24 words\]/);
+    assert.match(visible, new RegExp(`Backup verified\\. It restores ${printed(res.output, 'Address')} \\(m/44'/60'/0'/0/0\\)`));
+    assert.ok(!visible.includes(mnemonic.split(' ')[0] + ' ' + mnemonic.split(' ')[1]), 'mnemonic visible after clear');
+    assert.doesNotMatch(visible, /Enter passphrase/);
+});
+
+test('create on a TTY: wrong passphrase is reported, shown again, then verified', { skip }, async () => {
+    const res = await runPty(['create', '--passphrase'], [
+        { waitFor: '[Y/n] ', send: 'y\r' },
+        { waitFor: 'Enter mnemonic: ', send: (out) => `${printed(out, 'Mnemonic')}\r` },
+        { waitFor: 'Enter passphrase: ', send: 'wrong\r' },
+        { waitFor: 'or [q]uit? ', send: 's\r' },
+        { waitFor: 'verify again. ', send: '\r' },
+        { waitFor: 'Enter mnemonic: ', send: (out) => `${printed(out, 'Mnemonic')}\r` },
+        // Lowercase and without dashes: normalised like in restore.
+        { waitFor: 'Enter passphrase: ', send: (out) => `${printed(out, 'Passphrase').toLowerCase().replaceAll('-', '')}\r` },
+    ]);
+    assert.equal(res.code, 0, res.output);
+    assert.match(res.output, /Mismatch: the passphrase differs\./);
+    assert.match(afterClear(res), /Backup verified/);
+});
+
+test('create on a TTY: a valid but different mnemonic names the word position', { skip }, async () => {
+    // Swap the last word for another one that still passes the checksum.
+    const otherLastWord = (mnemonic) => {
+        const words = mnemonic.split(' ');
+        const replacement = wordlist.find((w) => w !== words[23] && validateMnemonic([...words.slice(0, 23), w].join(' '), wordlist));
+        return [...words.slice(0, 23), replacement].join(' ');
+    };
+    const res = await runPty(['create'], [
+        { waitFor: '[Y/n] ', send: '\r' },
+        { waitFor: 'Enter mnemonic: ', send: (out) => `${otherLastWord(printed(out, 'Mnemonic'))}\r` },
+        { waitFor: 'or [q]uit? ', send: 'q\r' },
+    ]);
+    assert.equal(res.code, 1, res.output);
+    const visible = afterClear(res);
+    assert.match(visible, /Mismatch: word #24 differs\./);
+    assert.match(visible, /Backup NOT verified/);
+    assert.match(visible, new RegExp(`Address:\\s+${printed(res.output, 'Address')}`));
+});
+
+test('create on a TTY: verification can be skipped', { skip }, async () => {
+    const skipped = await runPty(['create'], [{ waitFor: '[Y/n] ', send: 'n\r' }]);
+    assert.equal(skipped.code, 0, skipped.output);
+    assert.match(skipped.output, /Skipped\. Before funding this address, check your backup/);
+    assert.ok(!skipped.raw.includes(CLEAR_SCREEN));
+
+    const noVerify = await runPty(['create', '--no-verify'], []);
+    assert.equal(noVerify.code, 0, noVerify.output);
+    assert.doesNotMatch(noVerify.output, /\[Y\/n\]/);
 });

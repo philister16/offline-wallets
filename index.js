@@ -89,6 +89,21 @@ function parseGeneratedPassphrase(input) {
     return { passphrase: groupSymbols(symbols) };
 }
 
+// Known-answer self-test, run before create and restore: catches broken or
+// tampered crypto libraries in a build. Vectors match test/cli.test.mjs.
+function selfTest() {
+    const { phrase } = parseMnemonic('TEST test test test test test test test test test test  junk');
+    const { passphrase } = parseGeneratedPassphrase('bffb-m987-8ppk-v696-ednf-7b5x-yapc') ?? {};
+    const a = Crypto.randomBytes(32);
+    const b = Crypto.randomBytes(32);
+    return (
+        deriveWallet(phrase, '', 0).address === '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266' &&
+        deriveWallet(phrase, passphrase, 1).address === '0x97EFFd9765BDd5A8749a0ca40ecD52967b794a69' &&
+        !a.equals(b) &&
+        a.some((byte) => byte !== 0)
+    );
+}
+
 function parseIndex(value) {
     if (value === undefined) return 0;
     const index = /^\d+$/.test(value) ? Number(value) : NaN;
@@ -213,6 +228,7 @@ function printHelp() {
     console.log('');
     console.log('Options for create:');
     console.log('  --passphrase          Also generate a passphrase. You need it, and the mnemonic, to restore');
+    console.log('  --no-verify           Skip the interactive backup check (skipped anyway without a terminal)');
     console.log('');
     console.log('Options for create and restore:');
     console.log("  --index <n>           Address index n in the path m/44'/60'/0'/0/n (default: 0)");
@@ -233,7 +249,14 @@ function printWallet(wallet, index, showPrivateKey) {
     if (showPrivateKey) console.log('Private Key: ', wallet.privateKey);
 }
 
-function create(options, index) {
+const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H'; // screen and scrollback
+
+function printSecrets(phrase, passphrase) {
+    console.log('Mnemonic:    ', phrase);
+    if (passphrase) console.log('Passphrase:  ', passphrase);
+}
+
+async function create(options, index) {
     console.log('Creating a new wallet...');
     const entropy = Crypto.randomBytes(32);
     const passphrase = options.passphrase ? generatePassphrase() : '';
@@ -242,9 +265,9 @@ function create(options, index) {
         console.error('Internal error: mnemonic does not round-trip to its entropy.');
         return 1;
     }
-    printWallet(deriveWallet(phrase, passphrase, index), index, options['show-private-key']);
-    console.log('Mnemonic:    ', phrase);
-    if (passphrase) console.log('Passphrase:  ', passphrase);
+    const wallet = deriveWallet(phrase, passphrase, index);
+    printWallet(wallet, index, options['show-private-key']);
+    printSecrets(phrase, passphrase);
     console.log('');
     console.log('Write down the mnemonic. Anyone who has it controls the funds; without it, they are lost.');
     if (passphrase) {
@@ -253,67 +276,137 @@ function create(options, index) {
         console.log('  - In other wallets, enter it exactly as shown (uppercase, with dashes).');
         console.log('  - If you lose it, the funds are lost. Nobody can recover it.');
     }
-    return 0;
+    if (options['no-verify'] || !stdin.isTTY) {
+        console.log('');
+        console.log('Before funding this address, check your backup with "ofwl restore".');
+        return 0;
+    }
+    return verifyBackup({ phrase, passphrase, index, address: wallet.address });
+}
+
+// Clear the screen, have the user re-enter the backup with hidden input, and
+// compare. Mismatches name word positions, never the words themselves.
+async function verifyBackup(expected) {
+    const prompter = createPrompter();
+    const notVerified = () => {
+        console.error('');
+        console.error('Backup NOT verified. Do not fund this address until "ofwl restore" with your backup shows it:');
+        console.log('Address:     ', expected.address);
+        return 1;
+    };
+    try {
+        console.log('');
+        const answer = await prompter.ask('Verify your backup now? The screen will be cleared first. [Y/n] ');
+        if (answer === null) return notVerified();
+        if (answer.trim().toLowerCase().startsWith('n')) {
+            console.log('Skipped. Before funding this address, check your backup with "ofwl restore".');
+            return 0;
+        }
+        for (;;) {
+            stdout.write(CLEAR_SCREEN);
+            console.log('Verify your backup');
+            console.log(`Enter the mnemonic${expected.passphrase ? ' and passphrase' : ''} from your written backup.`);
+            for (;;) {
+                const entered = await promptSecrets(prompter, { interactive: true, askPassphrase: Boolean(expected.passphrase) });
+                if (!entered) return notVerified();
+                const { address } = deriveWallet(entered.phrase, entered.passphrase, expected.index);
+                if (address === expected.address) {
+                    console.log(`Backup verified. It restores ${address} (${derivationPath(expected.index)}).`);
+                    return 0;
+                }
+                describeMismatch(expected, entered);
+                const choice = (await prompter.ask('[R]etry, [s]how the secrets again, or [q]uit? '))?.trim().toLowerCase();
+                if (choice === undefined || choice === 'q') return notVerified();
+                if (choice === 's') {
+                    printSecrets(expected.phrase, expected.passphrase);
+                    if ((await prompter.ask('Correct your backup, then press Enter to clear the screen and verify again. ')) === null) {
+                        return notVerified();
+                    }
+                    break;
+                }
+            }
+        }
+    } finally {
+        prompter.close();
+    }
+}
+
+function describeMismatch(expected, entered) {
+    if (entered.phrase !== expected.phrase) {
+        const want = expected.phrase.split(' ');
+        const got = entered.phrase.split(' ');
+        if (got.length !== want.length) {
+            console.error(`Mismatch: you entered ${got.length} words, the wallet has ${want.length}.`);
+        } else {
+            const positions = want.flatMap((word, i) => (word === got[i] ? [] : [`#${i + 1}`]));
+            console.error(`Mismatch: word${positions.length === 1 ? '' : 's'} ${positions.join(', ')} ${positions.length === 1 ? 'differs' : 'differ'}.`);
+        }
+    }
+    if (entered.passphrase !== expected.passphrase) console.error('Mismatch: the passphrase differs.');
+}
+
+// Prompts for the mnemonic and (optionally) the passphrase. Returns
+// { phrase, passphrase }, or null after reporting why input was not accepted.
+async function promptSecrets(prompter, { interactive, raw = false, askPassphrase = true }) {
+    let phrase;
+    while (!phrase) {
+        const input = await prompter.ask('Enter mnemonic: ', { mask: 'words' });
+        if (input === null) {
+            console.error('\nNo mnemonic entered.');
+            return null;
+        }
+        const result = parseMnemonic(input);
+        if (result.error) {
+            console.error(result.error);
+            if (!interactive) return null;
+        } else {
+            phrase = result.phrase;
+        }
+    }
+    if (!askPassphrase) return { phrase, passphrase: '' };
+
+    for (;;) {
+        const input = await prompter.ask('Enter passphrase: ', { mask: 'chars' });
+        if (input === null) {
+            console.error('\nNo passphrase entered (press Enter for none).');
+            return null;
+        }
+        const generated = raw ? null : parseGeneratedPassphrase(input);
+        if (generated?.passphrase) {
+            if (generated.passphrase !== input) {
+                console.error('Recognised an ofwl passphrase and normalised it to its printed form (uppercase, with dashes).');
+            }
+            return { phrase, passphrase: generated.passphrase };
+        }
+        if (generated?.error) {
+            console.error(generated.error);
+            if (!interactive) {
+                console.error('To use the passphrase exactly as entered, pass --raw-passphrase.');
+                return null;
+            }
+            const answer = await prompter.ask('Use it exactly as entered instead? [y/N] ');
+            if (answer === null) return null;
+            if (answer.trim().toLowerCase() !== 'y') continue;
+        } else if (input !== input.trim()) {
+            // BIP-39 treats whitespace as significant, so never trim; warn instead.
+            console.error(`Warning: the passphrase (${input.length} characters) has leading or trailing whitespace. Whitespace is part of the passphrase and changes the wallet.`);
+            if (interactive) {
+                const answer = await prompter.ask('Use it as entered? [y/N] ');
+                if (answer === null) return null;
+                if (answer.trim().toLowerCase() !== 'y') continue;
+            }
+        }
+        return { phrase, passphrase: input };
+    }
 }
 
 async function restore(options, index) {
     console.log('Restoring a wallet...');
-    const interactive = Boolean(stdin.isTTY);
     const prompter = createPrompter();
     try {
-        let phrase;
-        while (!phrase) {
-            const input = await prompter.ask('Enter mnemonic: ', { mask: 'words' });
-            if (input === null) {
-                console.error('\nNo mnemonic entered.');
-                return 1;
-            }
-            const result = parseMnemonic(input);
-            if (result.error) {
-                console.error(result.error);
-                if (!interactive) return 1;
-            } else {
-                phrase = result.phrase;
-            }
-        }
-
-        let passphrase;
-        while (passphrase === undefined) {
-            const input = await prompter.ask('Enter passphrase: ', { mask: 'chars' });
-            if (input === null) {
-                console.error('\nNo passphrase entered (press Enter for none).');
-                return 1;
-            }
-            const generated = options['raw-passphrase'] ? null : parseGeneratedPassphrase(input);
-            if (generated?.passphrase) {
-                if (generated.passphrase !== input) {
-                    console.error('Recognised an ofwl passphrase and normalised it to its printed form (uppercase, with dashes).');
-                }
-                passphrase = generated.passphrase;
-                continue;
-            }
-            if (generated?.error) {
-                console.error(generated.error);
-                if (!interactive) {
-                    console.error('To use the passphrase exactly as entered, pass --raw-passphrase.');
-                    return 1;
-                }
-                const answer = await prompter.ask('Use it exactly as entered instead? [y/N] ');
-                if (answer === null) return 1;
-                if (answer.trim().toLowerCase() !== 'y') continue;
-            } else if (input !== input.trim()) {
-                // BIP-39 treats whitespace as significant, so never trim; warn instead.
-                console.error(`Warning: the passphrase (${input.length} characters) has leading or trailing whitespace. Whitespace is part of the passphrase and changes the wallet.`);
-                if (interactive) {
-                    const answer = await prompter.ask('Use it as entered? [y/N] ');
-                    if (answer === null) return 1;
-                    if (answer.trim().toLowerCase() !== 'y') continue;
-                }
-            }
-            passphrase = input;
-        }
-
-        printWallet(deriveWallet(phrase, passphrase, index), index, options['show-private-key']);
+        const secrets = await promptSecrets(prompter, { interactive: Boolean(stdin.isTTY), raw: options['raw-passphrase'] });
+        if (!secrets) return 1;
+        printWallet(deriveWallet(secrets.phrase, secrets.passphrase, index), index, options['show-private-key']);
         return 0;
     } finally {
         prompter.close();
@@ -329,9 +422,9 @@ function passphrase() {
 const HELP_OPTION = { help: { type: 'boolean', short: 'h' } };
 const WALLET_OPTIONS = { ...HELP_OPTION, index: { type: 'string' }, 'show-private-key': { type: 'boolean' } };
 const COMMANDS = {
-    create: { run: create, options: { ...WALLET_OPTIONS, passphrase: { type: 'boolean' } } },
-    restore: { run: restore, options: { ...WALLET_OPTIONS, 'raw-passphrase': { type: 'boolean' } } },
-    passphrase: { run: passphrase, options: HELP_OPTION },
+    create: { run: create, selfTest: true, options: { ...WALLET_OPTIONS, passphrase: { type: 'boolean' }, 'no-verify': { type: 'boolean' } } },
+    restore: { run: restore, selfTest: true, options: { ...WALLET_OPTIONS, 'raw-passphrase': { type: 'boolean' } } },
+    passphrase: { run: passphrase, selfTest: false, options: HELP_OPTION },
 };
 
 async function main(args) {
@@ -368,6 +461,10 @@ async function main(args) {
     const index = parseIndex(options.index);
     if (index === null) {
         console.error(`--index must be an integer from 0 to ${MAX_INDEX}.`);
+        return 1;
+    }
+    if (command.selfTest && !selfTest()) {
+        console.error('Self-test failed: this build of ofwl derives wrong keys or has no working random source. Do not use it.');
         return 1;
     }
     return command.run(options, index);

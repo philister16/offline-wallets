@@ -60,7 +60,14 @@ ofwl help                       # Show all commands, flags, and current version
 `create` and `restore` print the address and its derivation path (`m/44'/60'/0'/0/0`, the default in MetaMask, Ledger, Trezor and most other wallets). Further options:
 
 - `--index <n>` uses address index `n` (path `m/44'/60'/0'/0/n`).
+- `--no-verify` skips the backup check (see below).
 - `--show-private-key` also prints the raw private key. It is hidden by default: the mnemonic already backs up the wallet, and importing a raw key into an online wallet defeats cold storage.
+
+### Backup check
+
+After `create` prints the wallet, it asks whether to verify your backup. If you agree, it clears the screen (including scrollback), asks you to type the mnemonic (and passphrase) back from your written copy, and checks that it restores the same address. If it doesn't, it tells you which word positions or the passphrase differ, and lets you see the secrets again to correct your copy. The check is skipped with `--no-verify` and when ofwl doesn't run in a terminal.
+
+Before generating or restoring, ofwl also runs a quick self-test against known test vectors and refuses to continue if it fails, for example because a build was tampered with.
 
 ### Passphrases
 
