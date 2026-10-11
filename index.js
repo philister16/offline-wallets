@@ -128,14 +128,9 @@ async function confirmOffline() {
         console.error('Refusing to continue without a terminal to confirm. Pass --allow-online to skip this check.');
         return false;
     }
-    const prompter = createPrompter();
-    try {
-        const answer = await prompter.ask('Type "yes" to continue anyway: ');
-        console.error('');
-        return answer?.trim().toLowerCase() === 'yes';
-    } finally {
-        prompter.close();
-    }
+    const answer = await getPrompter().ask('Type "yes" to continue anyway: ');
+    console.error('');
+    return answer?.trim().toLowerCase() === 'yes';
 }
 
 function parseIndex(value) {
@@ -147,8 +142,19 @@ function parseIndex(value) {
 // ask(prompt, { mask }) resolves to the entered line, or null once input ends
 // or the user aborts. On a TTY, masked input is never echoed: the prompt only
 // shows a live word or character count. Piped input is read line by line.
-function createPrompter() {
-    return stdin.isTTY ? createTTYPrompter() : createLinePrompter();
+// One prompter is shared for the whole run and closed by main(), so the
+// terminal stays in raw mode between prompts: in cooked mode the terminal
+// itself would echo anything typed or pasted ahead.
+let prompter = null;
+
+function getPrompter() {
+    prompter ??= stdin.isTTY ? createTTYPrompter() : createLinePrompter();
+    return prompter;
+}
+
+function closePrompter() {
+    prompter?.close();
+    prompter = null;
 }
 
 const MASKS = {
@@ -162,8 +168,8 @@ const MASKS = {
     },
 };
 
-// Reads keystrokes in raw mode. Keeps bytes after Enter for the next prompt, so
-// pasting "mnemonic\npassphrase\n" in one go works.
+// Reads keystrokes in raw mode, from creation until close(). Keeps bytes after
+// Enter for the next prompt, so pasting "mnemonic\npassphrase\n" in one go works.
 function createTTYPrompter() {
     let pending = '';
     let active = null;
@@ -174,6 +180,7 @@ function createTTYPrompter() {
         if (active) active();
     };
     stdin.setEncoding('utf8');
+    stdin.setRawMode(true);
     stdin.on('data', onData);
 
     return {
@@ -182,14 +189,10 @@ function createTTYPrompter() {
             let value = '';
             let escape = false;
             const draw = () => stdout.write(`\r\x1b[K${prompt}${value ? render(value) : ''}`);
-            stdin.setRawMode(true);
-            stdin.resume();
             draw();
             return new Promise((resolve) => {
                 const finish = (result) => {
                     active = null;
-                    stdin.setRawMode(false);
-                    stdin.pause();
                     stdout.write('\n');
                     resolve(result);
                 };
@@ -221,6 +224,7 @@ function createTTYPrompter() {
         close() {
             stdin.off('data', onData);
             stdin.pause();
+            restore();
             process.off('exit', restore);
         },
     };
@@ -324,47 +328,43 @@ async function create(options, index) {
 // Clear the screen, have the user re-enter the backup with hidden input, and
 // compare. Mismatches name word positions, never the words themselves.
 async function verifyBackup(expected) {
-    const prompter = createPrompter();
+    const prompter = getPrompter();
     const notVerified = () => {
         console.error('');
         console.error('Backup NOT verified. Do not fund this address until "ofwl restore" with your backup shows it:');
         console.log('Address:     ', expected.address);
         return 1;
     };
-    try {
-        console.log('');
-        const answer = await prompter.ask('Verify your backup now? The screen will be cleared first. [Y/n] ');
-        if (answer === null) return notVerified();
-        if (answer.trim().toLowerCase().startsWith('n')) {
-            console.log('Skipped. Before funding this address, check your backup with "ofwl restore".');
-            return 0;
-        }
+    console.log('');
+    const answer = await prompter.ask('Verify your backup now? The screen will be cleared first. [Y/n] ');
+    if (answer === null) return notVerified();
+    if (answer.trim().toLowerCase().startsWith('n')) {
+        console.log('Skipped. Before funding this address, check your backup with "ofwl restore".');
+        return 0;
+    }
+    for (;;) {
+        stdout.write(CLEAR_SCREEN);
+        console.log('Verify your backup');
+        console.log(`Enter the mnemonic${expected.passphrase ? ' and passphrase' : ''} from your written backup.`);
         for (;;) {
-            stdout.write(CLEAR_SCREEN);
-            console.log('Verify your backup');
-            console.log(`Enter the mnemonic${expected.passphrase ? ' and passphrase' : ''} from your written backup.`);
-            for (;;) {
-                const entered = await promptSecrets(prompter, { interactive: true, askPassphrase: Boolean(expected.passphrase) });
-                if (!entered) return notVerified();
-                const { address } = deriveWallet(entered.phrase, entered.passphrase, expected.index);
-                if (address === expected.address) {
-                    console.log(`Backup verified. It restores ${address} (${derivationPath(expected.index)}).`);
-                    return 0;
+            const entered = await promptSecrets(prompter, { interactive: true, askPassphrase: Boolean(expected.passphrase) });
+            if (!entered) return notVerified();
+            const { address } = deriveWallet(entered.phrase, entered.passphrase, expected.index);
+            if (address === expected.address) {
+                console.log(`Backup verified. It restores ${address} (${derivationPath(expected.index)}).`);
+                return 0;
+            }
+            describeMismatch(expected, entered);
+            const choice = (await prompter.ask('[R]etry, [s]how the secrets again, or [q]uit? '))?.trim().toLowerCase();
+            if (choice === undefined || choice === 'q') return notVerified();
+            if (choice === 's') {
+                printSecrets(expected.phrase, expected.passphrase);
+                if ((await prompter.ask('Correct your backup, then press Enter to clear the screen and verify again. ')) === null) {
+                    return notVerified();
                 }
-                describeMismatch(expected, entered);
-                const choice = (await prompter.ask('[R]etry, [s]how the secrets again, or [q]uit? '))?.trim().toLowerCase();
-                if (choice === undefined || choice === 'q') return notVerified();
-                if (choice === 's') {
-                    printSecrets(expected.phrase, expected.passphrase);
-                    if ((await prompter.ask('Correct your backup, then press Enter to clear the screen and verify again. ')) === null) {
-                        return notVerified();
-                    }
-                    break;
-                }
+                break;
             }
         }
-    } finally {
-        prompter.close();
     }
 }
 
@@ -439,15 +439,11 @@ async function promptSecrets(prompter, { interactive, raw = false, askPassphrase
 
 async function restore(options, index) {
     console.log('Restoring a wallet...');
-    const prompter = createPrompter();
-    try {
-        const secrets = await promptSecrets(prompter, { interactive: Boolean(stdin.isTTY), raw: options['raw-passphrase'] });
-        if (!secrets) return 1;
-        printWallet(deriveWallet(secrets.phrase, secrets.passphrase, index), index, options['show-private-key']);
-        return 0;
-    } finally {
-        prompter.close();
-    }
+    const prompter = getPrompter();
+    const secrets = await promptSecrets(prompter, { interactive: Boolean(stdin.isTTY), raw: options['raw-passphrase'] });
+    if (!secrets) return 1;
+    printWallet(deriveWallet(secrets.phrase, secrets.passphrase, index), index, options['show-private-key']);
+    return 0;
 }
 
 function passphrase() {
@@ -520,7 +516,7 @@ async function main(args) {
 
 // Let the process exit naturally so piped stdout is fully flushed. Unexpected
 // errors are reported without their message, which could contain secrets.
-main(process.argv.slice(2)).then(
+main(process.argv.slice(2)).finally(closePrompter).then(
     (code) => {
         process.exitCode = code;
     },
