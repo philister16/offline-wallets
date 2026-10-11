@@ -12,7 +12,7 @@ CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single
 - `node index.js create` — create a new wallet (or `ofwl create` if installed globally)
 - `node index.js restore` — restore wallet from mnemonic (interactive prompts)
 - `node index.js passphrase [bytes]` — generate random passphrase (default 16 bytes)
-- `npm test` — run the CLI test suite (`test/*.test.mjs`, Node's built-in `node:test`)
+- `npm test` — run the CLI test suite (`test/*.test.mjs`, Node's built-in `node:test`). `test/tty.test.mjs` drives the CLI in a pseudo-terminal via `script(1)` (macOS/Linux; skipped elsewhere).
 - `npm run build` — build the standalone binary via `build.sh`
 
 No linter configured. Dependencies are pinned to exact versions and locked in `npm-shrinkwrap.json` (published with the package); never use `^`/`~` ranges.
@@ -23,7 +23,7 @@ No linter configured. Dependencies are pinned to exact versions and locked in `n
 
 ## Architecture
 
-Everything lives in `index.js` — a single script with a shebang line. It parses `process.argv` directly (no argument parsing library) and `main()` dispatches to `create`, `restore`, `passphrase`, `--help`, `--version`; each returns an exit code, which is set via `process.exitCode` (not `process.exit`, so piped stdout is flushed). Only `restore` reads input, through `createPrompter()`, a readline wrapper that works for both a TTY and piped stdin. It re-prompts on invalid input only when interactive. Errors must never print secrets or stack traces.
+Everything lives in `index.js` — a single script with a shebang line. It parses `process.argv` directly (no argument parsing library) and `main()` dispatches to `create`, `restore`, `passphrase`, `--help`, `--version`; each returns an exit code, which is set via `process.exitCode` (not `process.exit`, so piped stdout is flushed). Only `restore` reads input, through `createPrompter()`: on a TTY it reads keystrokes in raw mode and never echoes masked input (the prompt shows only a word/character count); with piped stdin it reads lines via readline. It re-prompts on invalid input only when interactive. Errors must never print secrets or stack traces.
 
 Derivation: `deriveWallet()` does BIP-39 seed → BIP-32 key at `m/44'/60'/0'/0/0` → keccak256 address with EIP-55 checksum. User-entered mnemonics must go through `parseMnemonic()` (trim, lowercase, collapse whitespace, validate) before seeding, because raw `@scure/bip39` derives a different wallet from an uppercase phrase. Passphrases are never normalised.
 

@@ -56,7 +56,7 @@ ofwl passphrase [bytes]  # Generate a random passphrase (default: 16 bytes)
 ofwl help                # Show all commands, flags, and current version
 ```
 
-When restoring, you will be prompted for your mnemonic and passphrase. If your wallet didn't use a passphrase, leave it blank.
+When restoring, you will be prompted for your mnemonic and passphrase. If your wallet didn't use a passphrase, leave it blank. In a terminal, what you type is not shown: the prompt only displays a running word or character count, so the secrets don't end up on screen or in scrollback. Backspace and Ctrl-U (clear) work as usual, and Ctrl-C aborts.
 
 ## License
 

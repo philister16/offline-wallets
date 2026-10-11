@@ -50,10 +50,89 @@ function parseMnemonic(input) {
     return { phrase };
 }
 
-// Line-based prompts that work for both a TTY and piped stdin (where several
-// lines can arrive in one chunk). ask() resolves to null once input ends.
+// ask(prompt, { mask }) resolves to the entered line, or null once input ends
+// or the user aborts. On a TTY, masked input is never echoed: the prompt only
+// shows a live word or character count. Piped input is read line by line.
 function createPrompter() {
-    const rl = readline.createInterface({ input: stdin, output: stdout, terminal: stdin.isTTY });
+    return stdin.isTTY ? createTTYPrompter() : createLinePrompter();
+}
+
+const MASKS = {
+    words: (value) => {
+        const count = value.trim() ? value.trim().split(/\s+/).length : 0;
+        return `[${count} word${count === 1 ? '' : 's'}]`;
+    },
+    chars: (value) => {
+        const count = [...value].length;
+        return `[${count} character${count === 1 ? '' : 's'}]`;
+    },
+};
+
+// Reads keystrokes in raw mode. Keeps bytes after Enter for the next prompt, so
+// pasting "mnemonic\npassphrase\n" in one go works.
+function createTTYPrompter() {
+    let pending = '';
+    let active = null;
+    const restore = () => stdin.setRawMode(false);
+    process.on('exit', restore);
+    stdin.setEncoding('utf8');
+    stdin.on('data', (chunk) => {
+        pending += chunk;
+        if (active) active();
+    });
+
+    return {
+        ask(prompt, { mask } = {}) {
+            const render = mask ? MASKS[mask] : (value) => value;
+            let value = '';
+            let escape = false;
+            const draw = () => stdout.write(`\r\x1b[K${prompt}${value ? render(value) : ''}`);
+            stdin.setRawMode(true);
+            stdin.resume();
+            draw();
+            return new Promise((resolve) => {
+                const finish = (result) => {
+                    active = null;
+                    stdin.setRawMode(false);
+                    stdin.pause();
+                    stdout.write('\n');
+                    resolve(result);
+                };
+                active = () => {
+                    while (pending) {
+                        const [ch] = pending;
+                        pending = pending.slice(ch.length);
+                        if (escape) {
+                            // Skip ANSI sequences (arrow keys etc.): ESC [ ... final byte.
+                            if (ch !== '[' && ch !== 'O' && ch >= '@' && ch <= '~') escape = false;
+                            continue;
+                        }
+                        if (ch === '\r' || ch === '\n') {
+                            if (ch === '\r' && pending[0] === '\n') pending = pending.slice(1);
+                            return finish(value);
+                        }
+                        if (ch === '\u0003') return finish(null); // Ctrl-C
+                        if (ch === '\u0004' && !value) return finish(null); // Ctrl-D
+                        if (ch === '\u007f' || ch === '\b') value = [...value].slice(0, -1).join('');
+                        else if (ch === '\u0015') value = ''; // Ctrl-U
+                        else if (ch === '\x1b') escape = true;
+                        else if (ch >= ' ') value += ch;
+                        draw();
+                    }
+                };
+                active();
+            });
+        },
+        close() {
+            stdin.pause();
+            process.off('exit', restore);
+        },
+    };
+}
+
+// Piped stdin can deliver several lines in one chunk, so lines are queued.
+function createLinePrompter() {
+    const rl = readline.createInterface({ input: stdin, output: stdout, terminal: false });
     const lines = [];
     const waiting = [];
     let closed = false;
@@ -116,7 +195,7 @@ async function restore() {
     try {
         let phrase;
         while (!phrase) {
-            const input = await prompter.ask('Enter mnemonic: ');
+            const input = await prompter.ask('Enter mnemonic: ', { mask: 'words' });
             if (input === null) {
                 console.error('\nNo mnemonic entered.');
                 return 1;
@@ -132,7 +211,7 @@ async function restore() {
 
         let passphrase;
         while (passphrase === undefined) {
-            const input = await prompter.ask('Enter passphrase: ');
+            const input = await prompter.ask('Enter passphrase: ', { mask: 'chars' });
             if (input === null) {
                 console.error('\nNo passphrase entered (press Enter for none).');
                 return 1;
