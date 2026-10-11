@@ -61,11 +61,18 @@ ofwl help                       # Show all commands, flags, and current version
 
 - `--index <n>` uses address index `n` (path `m/44'/60'/0'/0/n`).
 - `--no-verify` skips the backup check (see below).
+- `--allow-online` skips the offline check (see below).
 - `--show-private-key` also prints the raw private key. It is hidden by default: the mnemonic already backs up the wallet, and importing a raw key into an online wallet defeats cold storage.
 
 ### Backup check
 
 After `create` prints the wallet, it asks whether to verify your backup. If you agree, it clears the screen (including scrollback), asks you to type the mnemonic (and passphrase) back from your written copy, and checks that it restores the same address. If it doesn't, it tells you which word positions or the passphrase differ, and lets you see the secrets again to correct your copy. The check is skipped with `--no-verify` and when ofwl doesn't run in a terminal.
+
+### Offline check
+
+Before generating or restoring, ofwl checks whether any network interface has a routable address (it only reads the local interface list and never connects anywhere). If so, it warns you and asks you to type `yes` to continue. Without a terminal, for example in a script, it refuses unless you pass `--allow-online`. Link-local addresses are ignored, because macOS keeps them even when offline.
+
+### Self-test
 
 Before generating or restoring, ofwl also runs a quick self-test against known test vectors and refuses to continue if it fails, for example because a build was tampered with.
 

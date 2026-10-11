@@ -3,6 +3,7 @@
 import readline from 'node:readline';
 import { stdin, stdout } from 'node:process';
 import Crypto from 'node:crypto';
+import os from 'node:os';
 import { parseArgs } from 'node:util';
 import { entropyToMnemonic, mnemonicToEntropy, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
@@ -104,6 +105,39 @@ function selfTest() {
     );
 }
 
+// Names of interfaces with a routable address. Loopback/internal interfaces
+// and link-local addresses (169.254.0.0/16, fe80::/10) are ignored: macOS keeps
+// those on awdl0/llw0/en* even when offline. Reads local state only; no sockets.
+function onlineInterfaces() {
+    const isLinkLocal = ({ family, address }) =>
+        family === 'IPv4' ? address.startsWith('169.254.') : /^fe[89ab][0-9a-f]:/i.test(address);
+    return Object.entries(os.networkInterfaces())
+        .filter(([, addresses]) => addresses.some((a) => !a.internal && !isLinkLocal(a)))
+        .map(([name]) => name);
+}
+
+async function confirmOffline() {
+    const interfaces = onlineInterfaces();
+    if (interfaces.length === 0) return true;
+    console.error('');
+    console.error(`WARNING: This computer appears to be online (network interfaces: ${interfaces.join(', ')}).`);
+    console.error('ofwl is meant to run on an offline, air-gapped machine. On a connected machine,');
+    console.error('malware or sync and backup software could capture your secrets.');
+    console.error('Disconnect from all networks (Wi-Fi, Ethernet, tethering) and run ofwl again.');
+    if (!stdin.isTTY) {
+        console.error('Refusing to continue without a terminal to confirm. Pass --allow-online to skip this check.');
+        return false;
+    }
+    const prompter = createPrompter();
+    try {
+        const answer = await prompter.ask('Type "yes" to continue anyway: ');
+        console.error('');
+        return answer?.trim().toLowerCase() === 'yes';
+    } finally {
+        prompter.close();
+    }
+}
+
 function parseIndex(value) {
     if (value === undefined) return 0;
     const index = /^\d+$/.test(value) ? Number(value) : NaN;
@@ -135,11 +169,12 @@ function createTTYPrompter() {
     let active = null;
     const restore = () => stdin.setRawMode(false);
     process.on('exit', restore);
-    stdin.setEncoding('utf8');
-    stdin.on('data', (chunk) => {
+    const onData = (chunk) => {
         pending += chunk;
         if (active) active();
-    });
+    };
+    stdin.setEncoding('utf8');
+    stdin.on('data', onData);
 
     return {
         ask(prompt, { mask } = {}) {
@@ -184,6 +219,7 @@ function createTTYPrompter() {
             });
         },
         close() {
+            stdin.off('data', onData);
             stdin.pause();
             process.off('exit', restore);
         },
@@ -233,6 +269,7 @@ function printHelp() {
     console.log('Options for create and restore:');
     console.log("  --index <n>           Address index n in the path m/44'/60'/0'/0/n (default: 0)");
     console.log('  --show-private-key    Also print the raw private key');
+    console.log('  --allow-online        Skip the check that this computer is offline');
     console.log('');
     console.log('Options for restore:');
     console.log('  --raw-passphrase      Use the passphrase exactly as typed, even if it looks like');
@@ -420,11 +457,16 @@ function passphrase() {
 }
 
 const HELP_OPTION = { help: { type: 'boolean', short: 'h' } };
-const WALLET_OPTIONS = { ...HELP_OPTION, index: { type: 'string' }, 'show-private-key': { type: 'boolean' } };
+const WALLET_OPTIONS = {
+    ...HELP_OPTION,
+    index: { type: 'string' },
+    'show-private-key': { type: 'boolean' },
+    'allow-online': { type: 'boolean' },
+};
 const COMMANDS = {
-    create: { run: create, selfTest: true, options: { ...WALLET_OPTIONS, passphrase: { type: 'boolean' }, 'no-verify': { type: 'boolean' } } },
-    restore: { run: restore, selfTest: true, options: { ...WALLET_OPTIONS, 'raw-passphrase': { type: 'boolean' } } },
-    passphrase: { run: passphrase, selfTest: false, options: HELP_OPTION },
+    create: { run: create, walletCommand: true, options: { ...WALLET_OPTIONS, passphrase: { type: 'boolean' }, 'no-verify': { type: 'boolean' } } },
+    restore: { run: restore, walletCommand: true, options: { ...WALLET_OPTIONS, 'raw-passphrase': { type: 'boolean' } } },
+    passphrase: { run: passphrase, walletCommand: false, options: HELP_OPTION },
 };
 
 async function main(args) {
@@ -463,9 +505,15 @@ async function main(args) {
         console.error(`--index must be an integer from 0 to ${MAX_INDEX}.`);
         return 1;
     }
-    if (command.selfTest && !selfTest()) {
-        console.error('Self-test failed: this build of ofwl derives wrong keys or has no working random source. Do not use it.');
-        return 1;
+    if (command.walletCommand) {
+        if (!selfTest()) {
+            console.error('Self-test failed: this build of ofwl derives wrong keys or has no working random source. Do not use it.');
+            return 1;
+        }
+        if (!options['allow-online'] && !(await confirmOffline())) {
+            console.error('Aborted.');
+            return 1;
+        }
     }
     return command.run(options, index);
 }

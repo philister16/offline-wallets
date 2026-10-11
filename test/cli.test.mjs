@@ -8,11 +8,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 
 const CLI = fileURLToPath(new URL('../index.js', import.meta.url));
 
-function run(args, input = '') {
-    const res = spawnSync(process.execPath, [CLI, ...args], { input, encoding: 'utf8' });
+// Wallet commands refuse to run on an online machine without a terminal, so
+// tests pass --allow-online unless they test that check.
+const WALLET_COMMANDS = ['create', 'restore'];
+
+function run(args, input = '', { allowOnline = true } = {}) {
+    const flags = allowOnline && WALLET_COMMANDS.includes(args[0]) ? ['--allow-online'] : [];
+    const res = spawnSync(process.execPath, [CLI, ...args, ...flags], { input, encoding: 'utf8' });
     return { code: res.status, stdout: res.stdout, stderr: res.stderr };
 }
 
@@ -249,4 +255,33 @@ test('missing or unknown command or option exits non-zero', () => {
     assert.notEqual(run(['create', '--bogus']).code, 0);
     assert.notEqual(run(['create', '--raw-passphrase']).code, 0);
     assert.notEqual(run(['restore', '--passphrase'], `${TEST_JUNK}\n\n`).code, 0);
+});
+
+// Independent copy of the "online" rule: any non-internal address that is not
+// IPv4 link-local (169.254/16) or IPv6 link-local (fe80::/10).
+const ONLINE = Object.values(os.networkInterfaces()).flat().some(
+    (a) => !a.internal && !(a.family === 'IPv4' ? /^169\.254\./.test(a.address) : /^fe[89ab]/i.test(a.address)),
+);
+
+test('offline check: without a terminal, an online machine is refused unless --allow-online', () => {
+    for (const [args, input] of [[['create'], ''], [['restore'], `${TEST_JUNK}\n\n`]]) {
+        const res = run(args, input, { allowOnline: false });
+        if (ONLINE) {
+            assert.equal(res.code, 1, args[0]);
+            assert.match(res.stderr, /WARNING: This computer appears to be online \(network interfaces: .+\)/);
+            assert.match(res.stderr, /Pass --allow-online/);
+            assert.equal(field(res.stdout, 'Address'), undefined);
+        } else {
+            assert.equal(res.code, 0, res.stderr);
+            assert.doesNotMatch(res.stderr, /appears to be online/);
+        }
+        const allowed = run([...args, '--allow-online'], input, { allowOnline: false });
+        assert.equal(allowed.code, 0, allowed.stderr);
+        assert.doesNotMatch(allowed.stderr, /appears to be online/);
+    }
+});
+
+test('offline check: not applied to the passphrase command', () => {
+    assert.equal(run(['passphrase'], '', { allowOnline: false }).code, 0);
+    assert.notEqual(run(['passphrase', '--allow-online']).code, 0);
 });

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import os from 'node:os';
 import { validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 
@@ -29,8 +30,8 @@ const skip = ptyCommand([]) ? false : 'script(1) pseudo-terminal not supported o
 
 // Each step waits for `waitFor` to appear in the output (after the previous
 // match), then types `send` (a string, or a function of the output so far).
-function runPty(args, steps) {
-    const [command, commandArgs] = ptyCommand(args);
+function runPty(args, steps, { allowOnline = true } = {}) {
+    const [command, commandArgs] = ptyCommand(allowOnline && args.length ? [...args, '--allow-online'] : args);
     return new Promise((resolve, reject) => {
         const child = spawn(command, commandArgs);
         let output = '';
@@ -212,4 +213,27 @@ test('create on a TTY: verification can be skipped', { skip }, async () => {
     const noVerify = await runPty(['create', '--no-verify'], []);
     assert.equal(noVerify.code, 0, noVerify.output);
     assert.doesNotMatch(noVerify.output, /\[Y\/n\]/);
+});
+
+// --- offline check ---
+
+const ONLINE = Object.values(os.networkInterfaces()).flat().some(
+    (a) => !a.internal && !(a.family === 'IPv4' ? /^169\.254\./.test(a.address) : /^fe[89ab]/i.test(a.address)),
+);
+const onlineSkip = skip || (!ONLINE && 'machine is offline; the online warning cannot be triggered');
+
+test('offline check on a TTY: online machine requires typing "yes"', { skip: onlineSkip }, async () => {
+    const refused = await runPty(['restore'], [{ waitFor: 'to continue anyway: ', send: 'y\r' }], { allowOnline: false });
+    assert.equal(refused.code, 1, refused.output);
+    assert.match(refused.output, /WARNING: This computer appears to be online/);
+    assert.match(refused.output, /Aborted\./);
+    assert.doesNotMatch(refused.output, /Enter mnemonic/);
+
+    const accepted = await runPty(['restore'], [
+        { waitFor: 'to continue anyway: ', send: 'yes\r' },
+        { waitFor: 'Enter mnemonic: ', send: `${TEST_JUNK}\r` },
+        { waitFor: 'Enter passphrase: ', send: '\r' },
+    ], { allowOnline: false });
+    assert.equal(accepted.code, 0, accepted.output);
+    assert.match(accepted.output, new RegExp(`Address:\\s+${TEST_JUNK_ADDRESS}`));
 });
