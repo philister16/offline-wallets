@@ -1,5 +1,8 @@
 # Offline Wallets
 
+[![npm](https://img.shields.io/npm/v/offline-wallets)](https://www.npmjs.com/package/offline-wallets)
+[![CI](https://github.com/philister16/offline-wallets/actions/workflows/ci.yml/badge.svg)](https://github.com/philister16/offline-wallets/actions/workflows/ci.yml)
+
 A small utility to create and restore Ethereum wallets offline. It uses the audited, zero-dependency [`@scure/bip39`](https://github.com/paulmillr/scure-bip39), [`@scure/bip32`](https://github.com/paulmillr/scure-bip32), [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) libraries and Node's native crypto module under the hood.
 
 > **Before using ofwl for real funds, read [SECURITY.md](SECURITY.md).** It describes the safe usage procedure (offline live OS, verifying the binary, paper backup, test restore) and how to use your wallet in Trezor, Ledger or MetaMask.
@@ -99,6 +102,22 @@ Wallets created with 1.x, including their base64 passphrases (e.g. `fuIIP2QeNYE8
 - `create` no longer generates a passphrase unless you pass `--passphrase`, and generated passphrases use the format above.
 - The private key is hidden unless you pass `--show-private-key`.
 - `passphrase` no longer takes a byte length.
+
+## Releases and verification
+
+**Latest release: 2.0.0** (11 October 2026). It is the first release after a [security audit](SECURITY_AUDIT.md) of ofwl, and completes every task in the audit's action plan. See [Upgrading from 1.x](#upgrading-from-1x) for what changed.
+
+How releases are made:
+
+- Every change to `main` goes through a pull request and must pass CI: the test suite on Ubuntu and macOS with Node.js 22, 24 and 26, checks of dependency signatures and known vulnerabilities, and a check that the standalone binary builds reproducibly.
+- Pushing a version tag starts the [release workflow](.github/workflows/release.yml). It reruns CI and *stages* the package on npm with [provenance](https://docs.npmjs.com/generating-provenance-statements). The version only goes live after the maintainer reviews it and approves it with 2FA; there is no npm token that could publish on its own.
+
+How to verify what you install:
+
+- The [npm package page](https://www.npmjs.com/package/offline-wallets) shows the provenance of each version: the commit and workflow run that built it. After installing, `npm audit signatures` checks the registry signatures and provenance.
+- For the standalone binary, each [CI run](https://github.com/philister16/offline-wallets/actions/workflows/ci.yml) lists the SHA-256 of the binaries it built and the Node.js version it used. Building the same commit with the same Node.js version on the same platform should give the same hash.
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 ## License
 
