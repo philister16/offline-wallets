@@ -64,7 +64,7 @@ test(`restore matches ethers on ${CASES} random wallets`, async () => {
         return { input, passphrase, expected };
     });
     await pool(cases, async ({ input, passphrase, expected }) => {
-        const res = await run(['restore'], `${input}\n${passphrase}\n`);
+        const res = await run(['restore', '--show-private-key', '--raw-passphrase'], `${input}\n${passphrase}\n`);
         assert.equal(res.code, 0, res.stderr);
         assert.equal(field(res.stdout, 'Address'), expected.address);
         assert.equal(field(res.stdout, 'Private Key'), expected.privateKey);
@@ -72,10 +72,11 @@ test(`restore matches ethers on ${CASES} random wallets`, async () => {
 });
 
 test('create output matches what ethers derives from the printed secrets', async () => {
-    await pool(Array.from({ length: 24 }), async () => {
-        const res = await run(['create']);
+    await pool(Array.from({ length: 24 }, (_, i) => i % 2 === 0), async (withPassphrase) => {
+        const flags = withPassphrase ? ['--passphrase'] : [];
+        const res = await run(['create', '--show-private-key', ...flags]);
         assert.equal(res.code, 0, res.stderr);
-        const wallet = HDNodeWallet.fromPhrase(field(res.stdout, 'Mnemonic'), field(res.stdout, 'Passphrase'));
+        const wallet = HDNodeWallet.fromPhrase(field(res.stdout, 'Mnemonic'), field(res.stdout, 'Passphrase') ?? '');
         assert.equal(field(res.stdout, 'Address'), wallet.address);
         assert.equal(field(res.stdout, 'Private Key'), wallet.privateKey);
     });

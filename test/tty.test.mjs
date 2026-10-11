@@ -127,3 +127,18 @@ test('restore on a TTY: Ctrl-C aborts with exit code 1', { skip }, async () => {
     assert.doesNotMatch(res.output, /Address:/);
     assertNoSecrets(res.output, ['test te']);
 });
+
+test('restore on a TTY: generated passphrase with a bad checksum asks before using it verbatim', { skip }, async () => {
+    const typo = 'BFFB-M987-8PPK-V696-EDNF-7B5X-YAPD';
+    const res = await runPty(['restore'], [
+        { waitFor: 'Enter mnemonic: ', send: `${TEST_JUNK}\r` },
+        { waitFor: 'Enter passphrase: ', send: `${typo}\r` },
+        { waitFor: '[y/N] ', send: 'n\r' },
+        { waitFor: 'Enter passphrase: ', send: 'bffb m987 8ppk v696 ednf 7b5x yapc\r' },
+    ]);
+    assert.equal(res.code, 0, res.output);
+    assert.match(res.output, /checksum does not match/);
+    assert.match(res.output, /Recognised an ofwl passphrase/);
+    assert.match(res.output, /Address:\s+0x64F666d162C79234fb3AFfC7e11d7C82D0a1633d/);
+    assertNoSecrets(res.output, ['BFFB', 'bffb', 'YAP']);
+});

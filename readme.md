@@ -50,13 +50,37 @@ The binary is platform-specific — it only runs on the same OS and CPU architec
 ## Usage
 
 ```
-ofwl create              # Create a new wallet
-ofwl restore             # Restore a wallet from a 24-word seed phrase
-ofwl passphrase [bytes]  # Generate a random passphrase (default: 16 bytes)
-ofwl help                # Show all commands, flags, and current version
+ofwl create                     # Create a new wallet (24-word mnemonic, no passphrase)
+ofwl create --passphrase        # ...and also generate a passphrase
+ofwl restore                    # Restore a wallet from its mnemonic (and passphrase, if any)
+ofwl passphrase                 # Generate a random passphrase
+ofwl help                       # Show all commands, flags, and current version
 ```
 
+`create` and `restore` print the address and its derivation path (`m/44'/60'/0'/0/0`, the default in MetaMask, Ledger, Trezor and most other wallets). Further options:
+
+- `--index <n>` uses address index `n` (path `m/44'/60'/0'/0/n`).
+- `--show-private-key` also prints the raw private key. It is hidden by default: the mnemonic already backs up the wallet, and importing a raw key into an online wallet defeats cold storage.
+
+### Passphrases
+
+A passphrase (sometimes called the "25th word") is optional. With one, the mnemonic alone restores a different, empty wallet, so a stolen mnemonic is useless without it. But you now have two secrets to back up, and **losing the passphrase means losing the funds**. Store it separately from the mnemonic. Not all wallets support passphrases (MetaMask, for example, does not).
+
+Generated passphrases look like `BFFB-M987-8PPK-V696-EDNF-7B5X-YAPC`: 130 random bits in [Crockford base32](https://www.crockford.com/base32.html) (no ambiguous characters such as `I`, `L`, `O` or `U`) plus a 2-character checksum. In other wallets, enter it exactly as printed, uppercase with dashes. `ofwl restore` is more forgiving: it accepts lowercase, missing dashes and `O`/`I`/`L` for `0`/`1`/`1`, and the checksum catches most typos. If you used a passphrase of your own that `ofwl restore` mistakes for a generated one, pass `--raw-passphrase` to use it exactly as typed.
+
+### Restoring
+
 When restoring, you will be prompted for your mnemonic and passphrase. If your wallet didn't use a passphrase, leave it blank. In a terminal, what you type is not shown: the prompt only displays a running word or character count, so the secrets don't end up on screen or in scrollback. Backspace and Ctrl-U (clear) work as usual, and Ctrl-C aborts.
+
+**Always restore your backup and check that the address matches before sending funds to it.**
+
+### Upgrading from 1.x
+
+Wallets created with 1.x, including their base64 passphrases (e.g. `fuIIP2QeNYE8cZ2ypShEPw==`), restore to the same addresses in 2.x. Changes in 2.0:
+
+- `create` no longer generates a passphrase unless you pass `--passphrase`, and generated passphrases use the format above.
+- The private key is hidden unless you pass `--show-private-key`.
+- `passphrase` no longer takes a byte length.
 
 ## License
 

@@ -3,6 +3,7 @@
 import readline from 'node:readline';
 import { stdin, stdout } from 'node:process';
 import Crypto from 'node:crypto';
+import { parseArgs } from 'node:util';
 import { entropyToMnemonic, mnemonicToEntropy, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { HDKey } from '@scure/bip32';
@@ -11,8 +12,17 @@ import { keccak_256 } from '@noble/hashes/sha3.js';
 import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import pkg from './package.json' with { type: 'json' };
 
-const DERIVATION_PATH = "m/44'/60'/0'/0/0";
 const MNEMONIC_LENGTHS = [12, 15, 18, 21, 24];
+const MAX_INDEX = 2 ** 31 - 1;
+
+// Generated passphrases: 26 random Crockford base32 symbols (130 bits) plus 2
+// checksum symbols, printed in groups of 4. The printed form is the canonical
+// BIP-39 passphrase string.
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const PASSPHRASE_DATA_SYMBOLS = 26;
+const PASSPHRASE_SYMBOLS = PASSPHRASE_DATA_SYMBOLS + 2;
+
+const derivationPath = (index) => `m/44'/60'/0'/0/${index}`;
 
 // EIP-55: uppercase each hex letter whose nibble in keccak256(lowercase address) is >= 8.
 function toChecksumAddress(hex) {
@@ -22,9 +32,9 @@ function toChecksumAddress(hex) {
 
 // BIP-39 seed -> BIP-32 key at the BIP-44 Ethereum path -> address.
 // `phrase` must be canonical (see parseMnemonic); the passphrase is used verbatim.
-function deriveWallet(phrase, passphrase) {
+function deriveWallet(phrase, passphrase, index = 0) {
     const seed = mnemonicToSeedSync(phrase, passphrase);
-    const { privateKey } = HDKey.fromMasterSeed(seed).derive(DERIVATION_PATH);
+    const { privateKey } = HDKey.fromMasterSeed(seed).derive(derivationPath(index));
     const publicKey = secp256k1.getPublicKey(privateKey, false);
     const address = toChecksumAddress(bytesToHex(keccak_256(publicKey.subarray(1)).subarray(-20)));
     return { address, privateKey: '0x' + bytesToHex(privateKey) };
@@ -48,6 +58,41 @@ function parseMnemonic(input) {
         return { error: 'Checksum mismatch: a word is wrong or the words are out of order.' };
     }
     return { phrase };
+}
+
+// First 10 bits of SHA-256 over the data symbols, as 2 base32 symbols.
+function passphraseChecksum(data) {
+    const hash = Crypto.createHash('sha256').update(data).digest();
+    const bits = (hash[0] << 2) | (hash[1] >> 6);
+    return CROCKFORD[bits >> 5] + CROCKFORD[bits & 31];
+}
+
+const groupSymbols = (symbols) => symbols.match(/.{1,4}/g).join('-');
+
+function generatePassphrase() {
+    const data = Array.from({ length: PASSPHRASE_DATA_SYMBOLS }, () => CROCKFORD[Crypto.randomInt(32)]).join('');
+    return groupSymbols(data + passphraseChecksum(data));
+}
+
+// Recognise input shaped like a generated passphrase, forgiving case, dashes,
+// spaces and the Crockford look-alikes O->0, I/L->1. Returns null when the
+// input is not shaped like one (e.g. a v1.x base64 passphrase), which must then
+// be used verbatim. Error messages never include the input.
+function parseGeneratedPassphrase(input) {
+    if (!/^[0-9A-Za-z\s-]+$/.test(input)) return null;
+    const symbols = input.toUpperCase().replace(/[\s-]/g, '').replace(/O/g, '0').replace(/[IL]/g, '1');
+    if (symbols.length !== PASSPHRASE_SYMBOLS || [...symbols].some((c) => !CROCKFORD.includes(c))) return null;
+    const data = symbols.slice(0, PASSPHRASE_DATA_SYMBOLS);
+    if (passphraseChecksum(data) !== symbols.slice(PASSPHRASE_DATA_SYMBOLS)) {
+        return { error: 'This looks like an ofwl passphrase, but its checksum does not match. Check it for typos.' };
+    }
+    return { passphrase: groupSymbols(symbols) };
+}
+
+function parseIndex(value) {
+    if (value === undefined) return 0;
+    const index = /^\d+$/.test(value) ? Number(value) : NaN;
+    return index <= MAX_INDEX ? index : null;
 }
 
 // ask(prompt, { mask }) resolves to the entered line, or null once input ends
@@ -158,37 +203,60 @@ function createLinePrompter() {
 function printHelp() {
     console.log(`ofwl v${pkg.version}`);
     console.log('');
-    console.log('Usage: ofwl <command>');
+    console.log('Usage: ofwl <command> [options]');
     console.log('');
     console.log('Commands:');
-    console.log('  create              Create a new wallet');
-    console.log('  restore             Restore a wallet from mnemonic');
-    console.log('  passphrase [bytes]  Generate a random passphrase (default: 16 bytes)');
-    console.log('  help                Show this help message');
+    console.log('  create                Create a new wallet');
+    console.log('  restore               Restore a wallet from its mnemonic (and passphrase, if any)');
+    console.log('  passphrase            Generate a random passphrase (130 bits, Crockford base32)');
+    console.log('  help                  Show this help message');
     console.log('');
-    console.log('Options:');
-    console.log('  --help | -h         Show help');
-    console.log('  --version | -v      Show version number');
+    console.log('Options for create:');
+    console.log('  --passphrase          Also generate a passphrase. You need it, and the mnemonic, to restore');
+    console.log('');
+    console.log('Options for create and restore:');
+    console.log("  --index <n>           Address index n in the path m/44'/60'/0'/0/n (default: 0)");
+    console.log('  --show-private-key    Also print the raw private key');
+    console.log('');
+    console.log('Options for restore:');
+    console.log('  --raw-passphrase      Use the passphrase exactly as typed, even if it looks like');
+    console.log('                        an ofwl passphrase (no case, dash or checksum handling)');
+    console.log('');
+    console.log('Global options:');
+    console.log('  --help | -h           Show help');
+    console.log('  --version | -v        Show version number');
 }
 
-function create() {
+function printWallet(wallet, index, showPrivateKey) {
+    console.log('Address:     ', wallet.address);
+    console.log('Path:        ', derivationPath(index));
+    if (showPrivateKey) console.log('Private Key: ', wallet.privateKey);
+}
+
+function create(options, index) {
     console.log('Creating a new wallet...');
     const entropy = Crypto.randomBytes(32);
-    const passphrase = Crypto.randomBytes(16).toString('base64');
+    const passphrase = options.passphrase ? generatePassphrase() : '';
     const phrase = entropyToMnemonic(entropy, wordlist);
     if (!entropy.equals(mnemonicToEntropy(phrase, wordlist))) {
         console.error('Internal error: mnemonic does not round-trip to its entropy.');
         return 1;
     }
-    const wallet = deriveWallet(phrase, passphrase);
-    console.log('Address:     ', wallet.address);
-    console.log('Private Key: ', wallet.privateKey);
+    printWallet(deriveWallet(phrase, passphrase, index), index, options['show-private-key']);
     console.log('Mnemonic:    ', phrase);
-    console.log('Passphrase:  ', passphrase);
+    if (passphrase) console.log('Passphrase:  ', passphrase);
+    console.log('');
+    console.log('Write down the mnemonic. Anyone who has it controls the funds; without it, they are lost.');
+    if (passphrase) {
+        console.log('The passphrase is required too. Without it the mnemonic restores a different, empty wallet.');
+        console.log('  - Store it separately from the mnemonic.');
+        console.log('  - In other wallets, enter it exactly as shown (uppercase, with dashes).');
+        console.log('  - If you lose it, the funds are lost. Nobody can recover it.');
+    }
     return 0;
 }
 
-async function restore() {
+async function restore(options, index) {
     console.log('Restoring a wallet...');
     const interactive = Boolean(stdin.isTTY);
     const prompter = createPrompter();
@@ -216,8 +284,25 @@ async function restore() {
                 console.error('\nNo passphrase entered (press Enter for none).');
                 return 1;
             }
-            // BIP-39 treats whitespace as significant, so never trim; warn instead.
-            if (input !== input.trim()) {
+            const generated = options['raw-passphrase'] ? null : parseGeneratedPassphrase(input);
+            if (generated?.passphrase) {
+                if (generated.passphrase !== input) {
+                    console.error('Recognised an ofwl passphrase and normalised it to its printed form (uppercase, with dashes).');
+                }
+                passphrase = generated.passphrase;
+                continue;
+            }
+            if (generated?.error) {
+                console.error(generated.error);
+                if (!interactive) {
+                    console.error('To use the passphrase exactly as entered, pass --raw-passphrase.');
+                    return 1;
+                }
+                const answer = await prompter.ask('Use it exactly as entered instead? [y/N] ');
+                if (answer === null) return 1;
+                if (answer.trim().toLowerCase() !== 'y') continue;
+            } else if (input !== input.trim()) {
+                // BIP-39 treats whitespace as significant, so never trim; warn instead.
                 console.error(`Warning: the passphrase (${input.length} characters) has leading or trailing whitespace. Whitespace is part of the passphrase and changes the wallet.`);
                 if (interactive) {
                     const answer = await prompter.ask('Use it as entered? [y/N] ');
@@ -228,53 +313,64 @@ async function restore() {
             passphrase = input;
         }
 
-        const wallet = deriveWallet(phrase, passphrase);
-        console.log('Address:     ', wallet.address);
-        console.log('Private Key: ', wallet.privateKey);
+        printWallet(deriveWallet(phrase, passphrase, index), index, options['show-private-key']);
         return 0;
     } finally {
         prompter.close();
     }
 }
 
-function passphrase(arg) {
+function passphrase() {
     console.log('Generating a passphrase...');
-    let passLength = 16;
-    if (arg !== undefined) {
-        passLength = parseInt(arg, 10);
-        if (Number.isNaN(passLength) || passLength < 1 || passLength > 256) {
-            console.error('Byte length must be a number between 1 and 256.');
-            return 1;
-        }
-    }
-    console.log('Random passphrase: ', Crypto.randomBytes(passLength).toString('base64'));
+    console.log('Random passphrase: ', generatePassphrase());
     return 0;
 }
 
+const HELP_OPTION = { help: { type: 'boolean', short: 'h' } };
+const WALLET_OPTIONS = { ...HELP_OPTION, index: { type: 'string' }, 'show-private-key': { type: 'boolean' } };
+const COMMANDS = {
+    create: { run: create, options: { ...WALLET_OPTIONS, passphrase: { type: 'boolean' } } },
+    restore: { run: restore, options: { ...WALLET_OPTIONS, 'raw-passphrase': { type: 'boolean' } } },
+    passphrase: { run: passphrase, options: HELP_OPTION },
+};
+
 async function main(args) {
-    switch (args[0]) {
-        case undefined:
-            console.error('Expected at least one argument! Use "ofwl help" for usage info.');
-            return 1;
-        case 'help':
-        case '--help':
-        case '-h':
-            printHelp();
-            return 0;
-        case '--version':
-        case '-v':
-            console.log(pkg.version);
-            return 0;
-        case 'create':
-            return create();
-        case 'restore':
-            return restore();
-        case 'passphrase':
-            return passphrase(args[1]);
-        default:
-            console.error('Invalid argument! Use "ofwl help" for usage info.');
-            return 1;
+    const [name, ...rest] = args;
+    if (name === undefined) {
+        console.error('Expected at least one argument! Use "ofwl help" for usage info.');
+        return 1;
     }
+    if (['help', '--help', '-h'].includes(name)) {
+        printHelp();
+        return 0;
+    }
+    if (['--version', '-v'].includes(name)) {
+        console.log(pkg.version);
+        return 0;
+    }
+    const command = Object.hasOwn(COMMANDS, name) ? COMMANDS[name] : null;
+    if (!command) {
+        console.error('Invalid argument! Use "ofwl help" for usage info.');
+        return 1;
+    }
+
+    let options;
+    try {
+        ({ values: options } = parseArgs({ args: rest, options: command.options, strict: true }));
+    } catch (err) {
+        console.error(`${err.message}\nUse "ofwl help" for usage info.`);
+        return 1;
+    }
+    if (options.help) {
+        printHelp();
+        return 0;
+    }
+    const index = parseIndex(options.index);
+    if (index === null) {
+        console.error(`--index must be an integer from 0 to ${MAX_INDEX}.`);
+        return 1;
+    }
+    return command.run(options, index);
 }
 
 // Let the process exit naturally so piped stdout is fully flushed. Unexpected

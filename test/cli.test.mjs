@@ -22,8 +22,8 @@ function field(stdout, label) {
     return match ? match[1].trim() : undefined;
 }
 
-function restore(mnemonic, passphrase) {
-    const res = run(['restore'], `${mnemonic}\n${passphrase}\n`);
+function restore(mnemonic, passphrase, flags = []) {
+    const res = run(['restore', '--show-private-key', ...flags], `${mnemonic}\n${passphrase}\n`);
     assert.equal(res.code, 0, res.stderr);
     return { address: field(res.stdout, 'Address'), privateKey: field(res.stdout, 'Private Key') };
 }
@@ -128,13 +128,89 @@ test('restore: input ending early exits 1 without deriving', () => {
     }
 });
 
-test('create: output restores to the same wallet', () => {
+test('restore: private key is hidden unless --show-private-key is passed', () => {
+    const res = run(['restore'], `${TEST_JUNK}\n\n`);
+    assert.equal(res.code, 0, res.stderr);
+    assert.equal(field(res.stdout, 'Private Key'), undefined);
+    assert.doesNotMatch(res.stdout, /[0-9a-f]{64}/i);
+    assert.equal(field(res.stdout, 'Path'), "m/44'/60'/0'/0/0");
+});
+
+test('restore: --index selects the address index', () => {
+    // Hardhat/Anvil default accounts #1 and #2.
+    for (const [index, address] of [['1', '0x70997970C51812dc3A010C7d01b50e0d17dc79C8'], ['2', '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC']]) {
+        const res = run(['restore', '--index', index], `${TEST_JUNK}\n\n`);
+        assert.equal(field(res.stdout, 'Address'), address);
+        assert.equal(field(res.stdout, 'Path'), `m/44'/60'/0'/0/${index}`);
+    }
+});
+
+test('restore: --index rejects non-integers and out-of-range values', () => {
+    for (const index of ['-1', '1.5', 'abc', '2147483648', '']) {
+        assert.equal(run(['restore', `--index=${index}`], `${TEST_JUNK}\n\n`).code, 1, `accepted ${index}`);
+    }
+});
+
+// v2.0.0 generated passphrase (Crockford base32 + 2 checksum symbols).
+const V2_PASSPHRASE = 'BFFB-M987-8PPK-V696-EDNF-7B5X-YAPC';
+const V2_ADDRESS = '0x64F666d162C79234fb3AFfC7e11d7C82D0a1633d';
+
+test('restore: generated passphrase in its printed form', () => {
+    assert.equal(restore(TEST_JUNK, V2_PASSPHRASE).address, V2_ADDRESS);
+});
+
+test('restore: generated passphrase tolerates case, dashes, spaces and O/I/L look-alikes', () => {
+    for (const input of [
+        V2_PASSPHRASE.toLowerCase(),
+        V2_PASSPHRASE.replaceAll('-', ''),
+        V2_PASSPHRASE.replaceAll('-', ' '),
+        ` ${V2_PASSPHRASE} `,
+        V2_PASSPHRASE.replace('0', 'O').replace('1', 'l'),
+        'bffbm9878ppkv696ednf7b5xyapc',
+    ]) {
+        const res = run(['restore'], `${TEST_JUNK}\n${input}\n`);
+        assert.equal(res.code, 0, res.stderr);
+        assert.equal(field(res.stdout, 'Address'), V2_ADDRESS, input);
+    }
+});
+
+test('restore: generated passphrase with a typo fails the checksum', () => {
+    const res = run(['restore'], `${TEST_JUNK}\n${V2_PASSPHRASE.slice(0, -1)}D\n`);
+    assert.equal(res.code, 1);
+    assert.match(res.stderr, /checksum does not match/);
+    assert.match(res.stderr, /--raw-passphrase/);
+    assert.equal(field(res.stdout, 'Address'), undefined);
+});
+
+test('restore: --raw-passphrase uses the passphrase verbatim', () => {
+    // Same as BIP-39 with the lowercase string, per ethers.
+    assert.equal(restore(TEST_JUNK, V2_PASSPHRASE.toLowerCase(), ['--raw-passphrase']).address, '0x378d4C267cf0B4B59D2e5a347BA6b463209381c9');
+    assert.equal(run(['restore', '--raw-passphrase'], `${TEST_JUNK}\n${V2_PASSPHRASE.slice(0, -1)}D\n`).code, 0);
+});
+
+const PASSPHRASE_FORMAT = /^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){6}$/;
+
+test('create: no passphrase by default, private key hidden, output restores', () => {
     const res = run(['create']);
     assert.equal(res.code, 0, res.stderr);
     const mnemonic = field(res.stdout, 'Mnemonic');
-    const passphrase = field(res.stdout, 'Passphrase');
     assert.equal(mnemonic.split(' ').length, 24);
-    assert.deepEqual(restore(mnemonic, passphrase), {
+    assert.equal(field(res.stdout, 'Passphrase'), undefined);
+    assert.equal(field(res.stdout, 'Private Key'), undefined);
+    assert.doesNotMatch(res.stdout, /[0-9a-f]{64}/i);
+    assert.equal(field(res.stdout, 'Path'), "m/44'/60'/0'/0/0");
+    assert.match(res.stdout, /Write down the mnemonic/);
+    assert.equal(restore(mnemonic, '').address, field(res.stdout, 'Address'));
+});
+
+test('create --passphrase --show-private-key --index: output restores', () => {
+    const res = run(['create', '--passphrase', '--show-private-key', '--index', '7']);
+    assert.equal(res.code, 0, res.stderr);
+    const passphrase = field(res.stdout, 'Passphrase');
+    assert.match(passphrase, PASSPHRASE_FORMAT);
+    assert.match(res.stdout, /Store it separately from the mnemonic/);
+    assert.equal(field(res.stdout, 'Path'), "m/44'/60'/0'/0/7");
+    assert.deepEqual(restore(field(res.stdout, 'Mnemonic'), passphrase, ['--index', '7']), {
         address: field(res.stdout, 'Address'),
         privateKey: field(res.stdout, 'Private Key'),
     });
@@ -144,28 +220,30 @@ test('create: two runs produce different wallets', () => {
     assert.notEqual(field(run(['create']).stdout, 'Mnemonic'), field(run(['create']).stdout, 'Mnemonic'));
 });
 
-test('passphrase: default is 16 random bytes', () => {
+test('passphrase: prints a valid generated passphrase', () => {
     const res = run(['passphrase']);
     assert.equal(res.code, 0, res.stderr);
-    assert.equal(Buffer.from(field(res.stdout, 'Random passphrase'), 'base64').length, 16);
+    const passphrase = field(res.stdout, 'Random passphrase');
+    assert.match(passphrase, PASSPHRASE_FORMAT);
+    assert.notEqual(passphrase, field(run(['passphrase']).stdout, 'Random passphrase'));
+    // Restore accepts it, i.e. its checksum is valid.
+    assert.equal(run(['restore'], `${TEST_JUNK}\n${passphrase.toLowerCase()}\n`).code, 0);
 });
 
-test('passphrase: custom byte length', () => {
-    assert.equal(Buffer.from(field(run(['passphrase', '32']).stdout, 'Random passphrase'), 'base64').length, 32);
-});
-
-test('passphrase: rejects invalid lengths', () => {
-    for (const arg of ['abc', '0', '257']) {
-        assert.notEqual(run(['passphrase', arg]).code, 0, `accepted ${arg}`);
-    }
+test('passphrase: takes no arguments', () => {
+    assert.equal(run(['passphrase', '16']).code, 1);
 });
 
 test('help and version exit 0', () => {
     assert.equal(run(['--help']).code, 0);
+    assert.equal(run(['create', '--help']).code, 0);
     assert.match(run(['--version']).stdout, /^\d+\.\d+\.\d+\s*$/);
 });
 
-test('missing or unknown command exits non-zero', () => {
+test('missing or unknown command or option exits non-zero', () => {
     assert.notEqual(run([]).code, 0);
     assert.notEqual(run(['bogus']).code, 0);
+    assert.notEqual(run(['create', '--bogus']).code, 0);
+    assert.notEqual(run(['create', '--raw-passphrase']).code, 0);
+    assert.notEqual(run(['restore', '--passphrase'], `${TEST_JUNK}\n\n`).code, 0);
 });
