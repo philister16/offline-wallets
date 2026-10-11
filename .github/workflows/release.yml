@@ -1,0 +1,47 @@
+name: Release
+
+# Stages a release on npm when a version tag (e.g. v2.0.0) is pushed. Uses npm
+# trusted publishing (OIDC): no npm token is stored in this repository. The
+# trusted publisher on npmjs.com (this repository, workflow release.yml,
+# environment "npm") is stage-only, so CI cannot publish directly: the staged
+# version goes live only after a maintainer approves it with 2FA in the
+# package's "Staged Packages" tab on npmjs.com or with `npm stage approve <id>`.
+# OIDC tokens cannot approve, so a compromised workflow cannot release alone.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # OIDC token for trusted publishing and provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24' # ships npm >= 11.15.0, required for staged publishing
+          registry-url: 'https://registry.npmjs.org'
+      - name: Check that the tag matches package.json
+        run: |
+          version="v$(node -p 'require("./package.json").version')"
+          [ "$version" = "$GITHUB_REF_NAME" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match package.json ($version)"; exit 1; }
+      - run: npm ci --ignore-scripts
+      - name: Check package contents
+        run: npm pack --dry-run
+      - name: Stage the release for maintainer approval
+        run: |
+          npm stage publish --provenance --access public
+          echo "Staged ${GITHUB_REF_NAME}. Approve it with 2FA in the Staged Packages tab on npmjs.com." >> "$GITHUB_STEP_SUMMARY"

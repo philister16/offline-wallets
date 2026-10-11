@@ -71,7 +71,7 @@ To receive more funds later, just send them to the address. You don't need to re
 
 ## Verifying what you run
 
-- **Dependencies:** all versions are pinned exactly and locked in `npm-shrinkwrap.json`, which is published with the npm package and honoured by `npm install -g`. After installing from npm, you can check the registry signatures with `npm audit signatures`.
+- **Dependencies:** all versions are pinned exactly and locked in `npm-shrinkwrap.json`, which is published with the npm package and honoured by `npm install -g`. Releases are built in GitHub Actions with [npm provenance](https://docs.npmjs.com/generating-provenance-statements), which links each published version to the exact commit and workflow that built it; the npm package page shows this. CI can only stage a release; it goes live after the maintainer approves it on npm with 2FA. After installing from npm, you can check the registry signatures and provenance with `npm audit signatures`.
 - **Standalone binary:** build it yourself as described above and compare the SHA-256 on the offline machine. The build downloads nothing: it reuses your local, official Node.js, refuses Node.js builds that depend on shared libraries, and smoke-tests the result against a known address. The build is reproducible: the same commit, Node.js version and platform give a byte-identical binary, so you can compare your hash with someone else's build.
 - **Self-test:** every `create` and `restore` first derives known test vectors and aborts if the results are wrong.
 - **Tests:** `npm test` checks derivation against standard BIP-39 and Ethereum vectors, wallets created by ofwl 1.x, and an independent reference implementation (ethers).

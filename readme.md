@@ -6,7 +6,7 @@ A small utility to create and restore Ethereum wallets offline. It uses the audi
 
 ## Installation
 
-### Option 1: npm (requires Node.js 20.19+)
+### Option 1: npm (requires Node.js 22+)
 
 ```
 npm install -g offline-wallets

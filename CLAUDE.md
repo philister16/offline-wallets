@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single-file Node.js app (ES module, Node ≥ 20.19) using `@scure/bip39`, `@scure/bip32`, `@noble/curves`, `@noble/hashes` and Node's native `crypto` module. Installed globally via npm and invoked as `ofwl <command>`.
+CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single-file Node.js app (ES module, Node ≥ 22) using `@scure/bip39`, `@scure/bip32`, `@noble/curves`, `@noble/hashes` and Node's native `crypto` module. Installed globally via npm and invoked as `ofwl <command>`.
 
 ## Commands
 
@@ -14,6 +14,10 @@ CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single
 - `node index.js passphrase` — generate a random passphrase
 - `npm test` — run the CLI test suite (`test/*.test.mjs`, Node's built-in `node:test`). `test/tty.test.mjs` drives the CLI in a pseudo-terminal via `script(1)` (macOS/Linux; skipped elsewhere).
 - `npm run build` — build the standalone binary `dist/ofwl` via `build.sh`: copies the local `node` (must be an official, self-contained build; checked with `otool -L`/`ldd`), injects the esbuild bundle as a Node SEA, smoke-tests it and prints its SHA-256. It must never download anything. Builds are reproducible; keep `useCodeCache: false` in `sea-config.json` (the V8 code cache is nondeterministic).
+
+CI (`.github/workflows/ci.yml`) runs `npm audit signatures`, `npm audit --omit=dev` and `npm test` on Ubuntu and macOS with Node 22/24/26, then builds the binary twice per OS and fails if the hashes differ. Pin actions by commit SHA.
+
+Releasing: bump the version (`npm version <x.y.z> --no-git-tag-version` updates `package.json` and `npm-shrinkwrap.json`), commit, then push a tag `v<x.y.z>`. `.github/workflows/release.yml` reruns CI, checks the tag matches `package.json` and **stages** the release with `npm stage publish --provenance` via npm trusted publishing (OIDC, environment `npm`). The trusted publisher is stage-only; the maintainer approves the staged version with 2FA on npmjs.com (Staged Packages tab) or `npm stage approve <id>`. Never switch to `npm publish` or add an npm token secret. A staged version occupies its version number, so check `npm stage list` before re-running a failed release.
 
 No linter configured. Dependencies are pinned to exact versions and locked in `npm-shrinkwrap.json` (published with the package); never use `^`/`~` ranges.
 

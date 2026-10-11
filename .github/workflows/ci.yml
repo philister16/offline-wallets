@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: ['22', '24', '26']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install exact dependency tree
+        run: npm ci --ignore-scripts
+      - name: Verify registry signatures and provenance of dependencies
+        run: npm audit signatures
+      - name: Check runtime dependencies for known vulnerabilities
+        run: npm audit --omit=dev
+      - run: npm test
+
+  build:
+    name: Build binary (${{ matrix.os }})
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - name: Build twice and check that the binary is reproducible
+        run: |
+          hash() { node -e 'process.stdout.write(require("crypto").createHash("sha256").update(require("fs").readFileSync(process.argv[1])).digest("hex"))' "$1"; }
+          npm run build
+          first=$(hash dist/ofwl)
+          npm run build
+          second=$(hash dist/ofwl)
+          echo "First build:  $first"
+          echo "Second build: $second"
+          [ "$first" = "$second" ] || { echo "::error::Builds are not reproducible"; exit 1; }
+          {
+            echo "| Platform | Node.js | SHA-256 of dist/ofwl |"
+            echo "|---|---|---|"
+            echo "| $(node -p 'process.platform + "-" + process.arch') | $(node -v) | \`$first\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
