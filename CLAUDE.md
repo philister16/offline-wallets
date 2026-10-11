@@ -19,7 +19,7 @@ No linter configured. Dependencies are pinned to exact versions and locked in `n
 
 ## Security constraints
 
-`SECURITY_AUDIT.md` is the source of truth for the hardening plan (section 7) and maintainer decisions (section 8). Above all: derivation must never change. The vectors in `test/cli.test.mjs` guard it, so run `npm test` after every change.
+`SECURITY.md` is the user-facing security guide (keep it in sync with CLI behaviour). `SECURITY_AUDIT.md` is the source of truth for the hardening plan (section 7) and maintainer decisions (section 8). Above all: derivation must never change. The vectors in `test/cli.test.mjs` guard it, so run `npm test` after every change.
 
 ## Architecture
 

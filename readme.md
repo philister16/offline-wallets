@@ -2,6 +2,8 @@
 
 A small utility to create and restore Ethereum wallets offline. It uses the audited, zero-dependency [`@scure/bip39`](https://github.com/paulmillr/scure-bip39), [`@scure/bip32`](https://github.com/paulmillr/scure-bip32), [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) libraries and Node's native crypto module under the hood.
 
+> **Before using ofwl for real funds, read [SECURITY.md](SECURITY.md).** It describes the safe usage procedure (offline live OS, verifying the binary, paper backup, test restore) and how to use your wallet in Trezor, Ledger or MetaMask.
+
 ## Installation
 
 ### Option 1: npm (requires Node.js 20.19+)
@@ -23,7 +25,7 @@ npm ci
 npm run build
 ```
 
-This produces `dist/ofwl` (~110 MB, includes the Node.js runtime).
+This produces `dist/ofwl` (~110 MB, includes the Node.js runtime). Record its SHA-256 (`shasum -a 256 dist/ofwl`) so you can check the copy on the air-gapped machine.
 
 **2. Transfer to the air-gapped machine:**
 
@@ -84,7 +86,7 @@ Generated passphrases look like `BFFB-M987-8PPK-V696-EDNF-7B5X-YAPC`: 130 random
 
 ### Restoring
 
-When restoring, you will be prompted for your mnemonic and passphrase. If your wallet didn't use a passphrase, leave it blank. In a terminal, what you type is not shown: the prompt only displays a running word or character count, so the secrets don't end up on screen or in scrollback. Backspace and Ctrl-U (clear) work as usual, and Ctrl-C aborts.
+When restoring, you will be prompted for your mnemonic (12, 15, 18, 21 or 24 words) and passphrase. If your wallet didn't use a passphrase, leave it blank. Upper/lower case and extra spaces in the mnemonic don't matter. In a terminal, what you type is not shown: the prompt only displays a running word or character count, so the secrets don't end up on screen or in scrollback. Backspace and Ctrl-U (clear) work as usual, and Ctrl-C aborts.
 
 **Always restore your backup and check that the address matches before sending funds to it.**
 
