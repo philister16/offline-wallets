@@ -1,10 +1,10 @@
 # Offline Wallets
 
-A small utility to create and restore Ethereum wallets offline. It uses ethers.js and Node's native crypto library under the hood.
+A small utility to create and restore Ethereum wallets offline. It uses the audited, zero-dependency [`@scure/bip39`](https://github.com/paulmillr/scure-bip39), [`@scure/bip32`](https://github.com/paulmillr/scure-bip32), [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) libraries and Node's native crypto module under the hood.
 
 ## Installation
 
-### Option 1: npm (requires Node.js)
+### Option 1: npm (requires Node.js 20.19+)
 
 ```
 npm install -g offline-wallets

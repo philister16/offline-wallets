@@ -90,7 +90,43 @@ test('restore: passphrase is whitespace-sensitive (BIP-39, must not be trimmed)'
     assert.notEqual(restore(mnemonic, passphrase + ' ').address, address);
 });
 
-test.todo('restore: leading/trailing whitespace around the mnemonic restores correctly (T5)');
+test('restore: leading/trailing whitespace around the mnemonic restores correctly', () => {
+    const { mnemonic, passphrase, address } = FROZEN_V1[0];
+    assert.equal(restore(`  ${mnemonic} \t`, passphrase).address, address);
+});
+
+test('restore: passphrase with surrounding whitespace warns but is used verbatim', () => {
+    const res = run(['restore'], `${TEST_JUNK}\n TREZOR\n`);
+    assert.equal(res.code, 0, res.stderr);
+    assert.match(res.stderr, /Warning: the passphrase \(7 characters\) has leading or trailing whitespace/);
+    assert.notEqual(field(res.stdout, 'Address'), restore(TEST_JUNK, 'TREZOR').address);
+});
+
+test('restore: invalid mnemonics fail with a friendly message, no stack trace, no echo', () => {
+    const words = FROZEN_V1[0].mnemonic.split(' ');
+    const cases = [
+        { input: words.slice(0, 23).join(' '), message: /Expected 12, 15, 18, 21 or 24 words, got 23\./ },
+        { input: [...words.slice(0, 5), 'notaword', ...words.slice(6)].join(' '), message: /Word #6 is not in the BIP-39 English word list\./ },
+        { input: [words[1], words[0], ...words.slice(2)].join(' '), message: /Checksum mismatch/ },
+        { input: '', message: /got 0\./ },
+    ];
+    for (const { input, message } of cases) {
+        const res = run(['restore'], `${input}\nsecret-pass\n`);
+        assert.equal(res.code, 1);
+        assert.match(res.stderr, message);
+        assert.doesNotMatch(res.stderr, /\n\s+at /, 'stack trace printed');
+        assert.doesNotMatch(res.stdout + res.stderr, /secret-pass|notaword/, 'input echoed in output');
+        if (input) assert.ok(!(res.stdout + res.stderr).includes(input), 'mnemonic echoed in output');
+    }
+});
+
+test('restore: input ending early exits 1 without deriving', () => {
+    for (const input of ['', `${TEST_JUNK}\n`]) {
+        const res = run(['restore'], input);
+        assert.equal(res.code, 1);
+        assert.equal(field(res.stdout, 'Address'), undefined);
+    }
+});
 
 test('create: output restores to the same wallet', () => {
     const res = run(['create']);

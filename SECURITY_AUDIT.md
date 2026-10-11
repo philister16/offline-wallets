@@ -353,4 +353,6 @@ A hardware wallet also gives you on-device address verification, which this tool
 
 - [x] T1: `test/cli.test.mjs` (`node:test`, `npm test`) with standard vectors, frozen v1.2.0 wallets, input-tolerance checks and CLI round-trips. Changing one expected address makes it fail.
 - [x] T2: exact versions in `package.json`, `npm-shrinkwrap.json` committed and included in `"files"`, readme uses `npm ci`.
+- [x] T3: runtime deps are now `@scure/bip39`, `@scure/bip32`, `@noble/curves`, `@noble/hashes` 2.4.0 (+ `@scure/base` transitively). `npm audit --omit=dev`: 0 vulnerabilities. `test/ethers-diff.test.mjs` compares the CLI with ethers on random wallets and messy input. esbuild bundles to CJS for the SEA binary (bundle about 147 KB).
+- [x] T5: `main()` dispatch with exit codes, lazy readline, mnemonic canonicalisation with friendly errors (re-prompt when interactive, exit 1 when piped), passphrase whitespace warning (confirmation when interactive), no stack traces or echoed input in errors.
 - [ ] T4: blocked until `gpg` is installed on the build machine (`brew install gnupg`).

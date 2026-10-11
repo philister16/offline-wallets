@@ -2,6 +2,7 @@
   "name": "offline-wallets",
   "version": "1.2.0",
   "description": "Small utility to create and restore wallets offline",
+  "type": "module",
   "main": "index.js",
   "author": "philister16",
   "license": "MIT",
@@ -9,11 +10,18 @@
     "type": "git",
     "url": "https://github.com/philister16/offline-wallets"
   },
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "dependencies": {
-    "ethers": "6.16.0"
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "@scure/bip32": "2.4.0",
+    "@scure/bip39": "2.4.0"
   },
   "devDependencies": {
     "esbuild": "0.25.12",
+    "ethers": "6.16.0",
     "postject": "1.0.0-alpha.6"
   },
   "scripts": {

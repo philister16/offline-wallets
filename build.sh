@@ -19,7 +19,7 @@ fi
 DOWNLOAD_URL="https://nodejs.org/dist/${NODE_VERSION}/${TARBALL}"
 
 echo "==> Bundling with esbuild..."
-npx esbuild index.js --bundle --platform=node --outfile=dist/bundle.js
+npx esbuild index.js --bundle --platform=node --format=cjs --outfile=dist/bundle.js
 
 echo "==> Generating SEA blob..."
 node --experimental-sea-config sea-config.json

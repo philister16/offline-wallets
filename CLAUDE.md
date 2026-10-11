@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single-file Node.js app using ethers.js v6 and Node's native `crypto` module. Installed globally via npm and invoked as `ofwl <command>`.
+CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single-file Node.js app (ES module, Node ≥ 20.19) using `@scure/bip39`, `@scure/bip32`, `@noble/curves`, `@noble/hashes` and Node's native `crypto` module. Installed globally via npm and invoked as `ofwl <command>`.
 
 ## Commands
 
@@ -23,6 +23,8 @@ No linter configured. Dependencies are pinned to exact versions and locked in `n
 
 ## Architecture
 
-Everything lives in `index.js` — a single script with a shebang line. It parses `process.argv` directly (no argument parsing library) and branches into commands: `create`, `restore`, `passphrase`, `--help`, `--version`. The `restore` command uses readline for interactive input; all others are non-interactive.
+Everything lives in `index.js` — a single script with a shebang line. It parses `process.argv` directly (no argument parsing library) and `main()` dispatches to `create`, `restore`, `passphrase`, `--help`, `--version`; each returns an exit code, which is set via `process.exitCode` (not `process.exit`, so piped stdout is flushed). Only `restore` reads input, through `createPrompter()`, a readline wrapper that works for both a TTY and piped stdin. It re-prompts on invalid input only when interactive. Errors must never print secrets or stack traces.
 
-Key dependency: `ethers` (devDependency) provides `Mnemonic` and `HDNodeWallet` for BIP-39 mnemonic generation and HD wallet derivation.
+Derivation: `deriveWallet()` does BIP-39 seed → BIP-32 key at `m/44'/60'/0'/0/0` → keccak256 address with EIP-55 checksum. User-entered mnemonics must go through `parseMnemonic()` (trim, lowercase, collapse whitespace, validate) before seeding, because raw `@scure/bip39` derives a different wallet from an uppercase phrase. Passphrases are never normalised.
+
+`ethers` is a devDependency used only by `test/ethers-diff.test.mjs` as a reference implementation (it was the runtime dependency in v1.x). The standalone binary is bundled to CommonJS by esbuild (`--format=cjs`), so avoid top-level await and `import.meta` in `index.js`.
