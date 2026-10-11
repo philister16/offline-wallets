@@ -16,7 +16,7 @@ npm install -g offline-wallets
 
 Build a self-contained binary that requires no Node.js installation on the target machine. Supports macOS and Linux.
 
-**1. Build on a networked machine** (requires Node.js 22+):
+**1. Build on a networked machine** (requires an official Node.js 22+ build, see below):
 
 ```bash
 git clone https://github.com/philister16/offline-wallets.git
@@ -25,7 +25,9 @@ npm ci
 npm run build
 ```
 
-This produces `dist/ofwl` (~110 MB, includes the Node.js runtime). Record its SHA-256 (`shasum -a 256 dist/ofwl`) so you can check the copy on the air-gapped machine.
+This produces `dist/ofwl` (~110 MB): a copy of your local Node.js binary with ofwl built in. The build downloads nothing; it checks that the binary works and prints its SHA-256. Record the hash so you can check the copy on the air-gapped machine.
+
+The build reuses the `node` you run it with, so that Node.js must be an official, self-contained build: from the [nodejs.org](https://nodejs.org) installer, or via nvm, fnm or Volta. Homebrew's `node` and Linux distribution packages link shared libraries that won't exist on the offline machine; the build detects this and stops.
 
 **2. Transfer to the air-gapped machine:**
 

@@ -13,7 +13,7 @@ CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single
 - `node index.js restore [--index n] [--show-private-key] [--raw-passphrase] [--allow-online]` — restore wallet from mnemonic (interactive prompts)
 - `node index.js passphrase` — generate a random passphrase
 - `npm test` — run the CLI test suite (`test/*.test.mjs`, Node's built-in `node:test`). `test/tty.test.mjs` drives the CLI in a pseudo-terminal via `script(1)` (macOS/Linux; skipped elsewhere).
-- `npm run build` — build the standalone binary via `build.sh`
+- `npm run build` — build the standalone binary `dist/ofwl` via `build.sh`: copies the local `node` (must be an official, self-contained build; checked with `otool -L`/`ldd`), injects the esbuild bundle as a Node SEA, smoke-tests it and prints its SHA-256. It must never download anything. Builds are reproducible; keep `useCodeCache: false` in `sea-config.json` (the V8 code cache is nondeterministic).
 
 No linter configured. Dependencies are pinned to exact versions and locked in `npm-shrinkwrap.json` (published with the package); never use `^`/`~` ranges.
 

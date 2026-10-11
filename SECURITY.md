@@ -31,7 +31,8 @@ For large amounts, a hardware wallet that generates its own seed is the safer de
 
 ### 1. Prepare (on a networked computer)
 
-1. Build the standalone binary from a clean checkout. `npm ci` installs exactly the versions locked in `npm-shrinkwrap.json`:
+1. Install an official Node.js build (22 or newer) from [nodejs.org](https://nodejs.org), or via nvm, fnm or Volta. The binary is built from this Node.js, so get it from the official source.
+2. Build the standalone binary from a clean checkout. `npm ci` installs exactly the versions locked in `npm-shrinkwrap.json`:
 
    ```bash
    git clone https://github.com/philister16/offline-wallets.git
@@ -41,13 +42,8 @@ For large amounts, a hardware wallet that generates its own seed is the safer de
    npm run build
    ```
 
-2. Record the binary's SHA-256 and keep it somewhere you trust (e.g. write it down):
-
-   ```bash
-   shasum -a 256 dist/ofwl
-   ```
-
-3. Copy `dist/ofwl` to a USB drive. Build on the same OS and CPU architecture as the offline machine.
+3. The build prints the binary's SHA-256. Keep it somewhere you trust (e.g. write it down). You can recompute it with `shasum -a 256 dist/ofwl`.
+4. Copy `dist/ofwl` to a USB drive. Build on the same OS and CPU architecture as the offline machine.
 
 ### 2. Generate (on the offline computer)
 
@@ -76,7 +72,7 @@ To receive more funds later, just send them to the address. You don't need to re
 ## Verifying what you run
 
 - **Dependencies:** all versions are pinned exactly and locked in `npm-shrinkwrap.json`, which is published with the npm package and honoured by `npm install -g`. After installing from npm, you can check the registry signatures with `npm audit signatures`.
-- **Standalone binary:** build it yourself as described above and compare the SHA-256 on the offline machine.
+- **Standalone binary:** build it yourself as described above and compare the SHA-256 on the offline machine. The build downloads nothing: it reuses your local, official Node.js, refuses Node.js builds that depend on shared libraries, and smoke-tests the result against a known address. The build is reproducible: the same commit, Node.js version and platform give a byte-identical binary, so you can compare your hash with someone else's build.
 - **Self-test:** every `create` and `restore` first derives known test vectors and aborts if the results are wrong.
 - **Tests:** `npm test` checks derivation against standard BIP-39 and Ethereum vectors, wallets created by ofwl 1.x, and an independent reference implementation (ethers).
 
