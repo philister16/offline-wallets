@@ -1,10 +1,12 @@
 # Offline Wallets
 
-A small utility to create and restore Ethereum wallets offline. It uses ethers.js and Node's native crypto library under the hood.
+A small utility to create and restore Ethereum wallets offline. It uses the audited, zero-dependency [`@scure/bip39`](https://github.com/paulmillr/scure-bip39), [`@scure/bip32`](https://github.com/paulmillr/scure-bip32), [`@noble/curves`](https://github.com/paulmillr/noble-curves) and [`@noble/hashes`](https://github.com/paulmillr/noble-hashes) libraries and Node's native crypto module under the hood.
+
+> **Before using ofwl for real funds, read [SECURITY.md](SECURITY.md).** It describes the safe usage procedure (offline live OS, verifying the binary, paper backup, test restore) and how to use your wallet in Trezor, Ledger or MetaMask.
 
 ## Installation
 
-### Option 1: npm (requires Node.js)
+### Option 1: npm (requires Node.js 22+)
 
 ```
 npm install -g offline-wallets
@@ -14,16 +16,18 @@ npm install -g offline-wallets
 
 Build a self-contained binary that requires no Node.js installation on the target machine. Supports macOS and Linux.
 
-**1. Build on a networked machine** (requires Node.js 22+):
+**1. Build on a networked machine** (requires an official Node.js 22+ build, see below):
 
 ```bash
 git clone https://github.com/philister16/offline-wallets.git
 cd offline-wallets
-npm install
+npm ci
 npm run build
 ```
 
-This produces `dist/ofwl` (~110 MB, includes the Node.js runtime).
+This produces `dist/ofwl` (~110 MB): a copy of your local Node.js binary with ofwl built in. The build downloads nothing; it checks that the binary works and prints its SHA-256. Record the hash so you can check the copy on the air-gapped machine.
+
+The build reuses the `node` you run it with, so that Node.js must be an official, self-contained build: from the [nodejs.org](https://nodejs.org) installer, or via nvm, fnm or Volta. Homebrew's `node` and Linux distribution packages link shared libraries that won't exist on the offline machine; the build detects this and stops.
 
 **2. Transfer to the air-gapped machine:**
 
@@ -50,13 +54,51 @@ The binary is platform-specific — it only runs on the same OS and CPU architec
 ## Usage
 
 ```
-ofwl create              # Create a new wallet
-ofwl restore             # Restore a wallet from a 24-word seed phrase
-ofwl passphrase [bytes]  # Generate a random passphrase (default: 16 bytes)
-ofwl help                # Show all commands, flags, and current version
+ofwl create                     # Create a new wallet (24-word mnemonic, no passphrase)
+ofwl create --passphrase        # ...and also generate a passphrase
+ofwl restore                    # Restore a wallet from its mnemonic (and passphrase, if any)
+ofwl passphrase                 # Generate a random passphrase
+ofwl help                       # Show all commands, flags, and current version
 ```
 
-When restoring, you will be prompted for your mnemonic and passphrase. If your wallet didn't use a passphrase, leave it blank.
+`create` and `restore` print the address and its derivation path (`m/44'/60'/0'/0/0`, the default in MetaMask, Ledger, Trezor and most other wallets). Further options:
+
+- `--index <n>` uses address index `n` (path `m/44'/60'/0'/0/n`).
+- `--no-verify` skips the backup check (see below).
+- `--allow-online` skips the offline check (see below).
+- `--show-private-key` also prints the raw private key. It is hidden by default: the mnemonic already backs up the wallet, and importing a raw key into an online wallet defeats cold storage.
+
+### Backup check
+
+After `create` prints the wallet, it asks whether to verify your backup. If you agree, it clears the screen (including scrollback), asks you to type the mnemonic (and passphrase) back from your written copy, and checks that it restores the same address. If it doesn't, it tells you which word positions or the passphrase differ, and lets you see the secrets again to correct your copy. The check is skipped with `--no-verify` and when ofwl doesn't run in a terminal.
+
+### Offline check
+
+Before generating or restoring, ofwl checks whether any network interface has a routable address (it only reads the local interface list and never connects anywhere). If so, it warns you and asks you to type `yes` to continue. Without a terminal, for example in a script, it refuses unless you pass `--allow-online`. Link-local addresses are ignored, because macOS keeps them even when offline.
+
+### Self-test
+
+Before generating or restoring, ofwl also runs a quick self-test against known test vectors and refuses to continue if it fails, for example because a build was tampered with.
+
+### Passphrases
+
+A passphrase (sometimes called the "25th word") is optional. With one, the mnemonic alone restores a different, empty wallet, so a stolen mnemonic is useless without it. But you now have two secrets to back up, and **losing the passphrase means losing the funds**. Store it separately from the mnemonic. Not all wallets support passphrases (MetaMask, for example, does not).
+
+Generated passphrases look like `BFFB-M987-8PPK-V696-EDNF-7B5X-YAPC`: 130 random bits in [Crockford base32](https://www.crockford.com/base32.html) (no ambiguous characters such as `I`, `L`, `O` or `U`) plus a 2-character checksum. In other wallets, enter it exactly as printed, uppercase with dashes. `ofwl restore` is more forgiving: it accepts lowercase, missing dashes and `O`/`I`/`L` for `0`/`1`/`1`, and the checksum catches most typos. If you used a passphrase of your own that `ofwl restore` mistakes for a generated one, pass `--raw-passphrase` to use it exactly as typed.
+
+### Restoring
+
+When restoring, you will be prompted for your mnemonic (12, 15, 18, 21 or 24 words) and passphrase. If your wallet didn't use a passphrase, leave it blank. Upper/lower case and extra spaces in the mnemonic don't matter. In a terminal, what you type is not shown: the prompt only displays a running word or character count, so the secrets don't end up on screen or in scrollback. Backspace and Ctrl-U (clear) work as usual, and Ctrl-C aborts.
+
+**Always restore your backup and check that the address matches before sending funds to it.**
+
+### Upgrading from 1.x
+
+Wallets created with 1.x, including their base64 passphrases (e.g. `fuIIP2QeNYE8cZ2ypShEPw==`), restore to the same addresses in 2.x. Changes in 2.0:
+
+- `create` no longer generates a passphrase unless you pass `--passphrase`, and generated passphrases use the format above.
+- The private key is hidden unless you pass `--show-private-key`.
+- `passphrase` no longer takes a byte length.
 
 ## License
 
