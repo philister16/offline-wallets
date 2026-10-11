@@ -19,7 +19,7 @@ Build a self-contained binary that requires no Node.js installation on the targe
 ```bash
 git clone https://github.com/philister16/offline-wallets.git
 cd offline-wallets
-npm install
+npm ci
 npm run build
 ```
 

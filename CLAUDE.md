@@ -12,8 +12,14 @@ CLI utility (`ofwl`) for creating and restoring Ethereum wallets offline. Single
 - `node index.js create` — create a new wallet (or `ofwl create` if installed globally)
 - `node index.js restore` — restore wallet from mnemonic (interactive prompts)
 - `node index.js passphrase [bytes]` — generate random passphrase (default 16 bytes)
+- `npm test` — run the CLI test suite (`test/*.test.mjs`, Node's built-in `node:test`)
+- `npm run build` — build the standalone binary via `build.sh`
 
-No build step, no tests, no linter configured.
+No linter configured. Dependencies are pinned to exact versions and locked in `npm-shrinkwrap.json` (published with the package); never use `^`/`~` ranges.
+
+## Security constraints
+
+`SECURITY_AUDIT.md` is the source of truth for the hardening plan (section 7) and maintainer decisions (section 8). Above all: derivation must never change. The vectors in `test/cli.test.mjs` guard it, so run `npm test` after every change.
 
 ## Architecture
 
